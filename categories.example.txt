@@ -1,0 +1,14 @@
+# Gleiche Datei wie phototag/categories.example.txt (für wget ohne Git).
+# Siehe README — categories.txt bleibt lokal und ist gitignored.
+
+landscape: Landschaft, Natur, Horizont im Fokus
+portrait: Person oder Gesicht im Mittelpunkt
+group: mehrere Personen sichtbar
+indoor: Innenraum
+outdoor: im Freien
+animal: Tier im Bild
+food: Essen oder Getränk
+document: Screenshot, Text, Formular
+event: Feier, Konzert, Versammlung
+night: Nachtaufnahme oder wenig Licht
+black_and_white: Schwarzweiss oder stark entsättigt

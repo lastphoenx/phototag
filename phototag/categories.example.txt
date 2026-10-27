@@ -1,0 +1,17 @@
+# Öffentliche Vorlage — KEINE persönlichen Tags ins Repo committen.
+# Auf dem Server:  cp categories.example.txt categories.txt  && nano categories.txt
+# Oder: PHOTOTAG_CATEGORIES=/pfad/zu/deiner/eigenen/categories.txt
+#
+# Format: tag: kurzer Hinweis für das Vision-Modell (eine Zeile pro Tag)
+
+landscape: Landschaft, Natur, Horizont im Fokus
+portrait: Person oder Gesicht im Mittelpunkt
+group: mehrere Personen sichtbar
+indoor: Innenraum
+outdoor: im Freien
+animal: Tier im Bild
+food: Essen oder Getränk
+document: Screenshot, Text, Formular
+event: Feier, Konzert, Versammlung
+night: Nachtaufnahme oder wenig Licht
+black_and_white: Schwarzweiss oder stark entsättigt

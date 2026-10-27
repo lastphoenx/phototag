@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+phototag.db
+*.db
+.env
+
+# Private taxonomy — never commit (only categories.example.txt in git)
+categories.txt
+**/categories.txt
+categories.private.txt
+**/categories.private.txt
