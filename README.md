@@ -45,11 +45,7 @@ Optional fixieren: `PHOTOTAG_UPDATE_REF=<commit-sha>` oder Tag (nur fuer `update
 
 ### Nacht-Lauf (00:00–07:00)
 
-`scripts/night-tag-loop.sh` scannt `PHOTOTAG_SCAN_ROOT` wiederholt und taggt in kleinen Batches (`PHOTOTAG_NIGHT_BATCH`, Pause `PHOTOTAG_NIGHT_SLEEP`). Stoppt ab `PHOTOTAG_NIGHT_END_HOUR` (Default 7). Systemd-Vorlage: `scripts/systemd/phototag-night.{service,timer}` — `PHOTOTAG_SCAN_ROOT` an euren OF-Mount anpassen.
-
-**Ollama (gmk-evo):** nachts nur phototag → ein Modell reicht; tagsüber `OLLAMA_MAX_LOADED_MODELS=2` falls ein zweites Modell parallel soll. Kein Dauer-Parallelismus in phototag (serielles `tag`).
-
-**Tag-Nachbearbeitung:** `PHOTOTAG_TAG_SANITIZE=1` (Default) — widersprüchliche Tags bereinigen; heikle Kombinationen → Status `review` (siehe `phototag review`).
+Ausführlich in **[DEPLOY.md §5](DEPLOY.md)** (Batch/Sleep, Videos, Scan-Root, systemd **Vorlage only**). Kurz: `PHOTOTAG_SCAN_ROOT` in `phototag.env`, optional `PHOTOTAG_NIGHT_IMAGES_FIRST=1`.
 
 ## Entwicklung
 

@@ -8,10 +8,11 @@ Type=oneshot
 TimeoutStartSec=7h
 Environment=PHOTOTAG_INSTALL_DIR=/opt/phototag
 Environment=PHOTOTAG_ENV=/opt/phototag/phototag.env
-Environment=PHOTOTAG_SCAN_ROOT=/mnt/nextcloud-of
-Environment=PHOTOTAG_NIGHT_BATCH=15
-Environment=PHOTOTAG_NIGHT_SLEEP=60
-Environment=PHOTOTAG_NIGHT_END_HOUR=7
+# PHOTOTAG_SCAN_ROOT und Nacht-Optionen in phototag.env (nicht erfundener Beispielpfad).
+EnvironmentFile=-/opt/phototag/phototag.env
+# Optional hier überschreiben (sonst Defaults im Skript: batch 20, sleep 45):
+# Environment=PHOTOTAG_NIGHT_BATCH=15
+# Environment=PHOTOTAG_NIGHT_SLEEP=60
 ExecStart=/opt/phototag/scripts/night-tag-loop.sh
 Nice=10
 IOSchedulingClass=idle

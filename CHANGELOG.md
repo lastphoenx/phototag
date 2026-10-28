@@ -2,6 +2,13 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.3.17
+
+- Nacht-Skript: **`PHOTOTAG_SCAN_ROOT` nur aus `phototag.env`** (kein fester Beispiel-Mount).
+- **`PHOTOTAG_NIGHT_IMAGES_FIRST=1`**, **`PHOTOTAG_NIGHT_KIND`**, Defaults Batch **20** / Sleep **45**.
+- systemd-Vorlage: `EnvironmentFile=phototag.env` — Timer **nicht** automatisch auf dem Server.
+- Doku: `DEPLOY.md` Nacht-Abschnitt erweitert; Homelab: `doku/phototag/nacht-tagging.md`.
+
 ## 0.3.16
 
 - **`./scripts/post-update.sh`** — nach Update ausführen (wird von `update-from-github.sh` aufgerufen).
