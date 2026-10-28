@@ -2,9 +2,9 @@
 
 Lokale **Foto- und Video-Verschlagwortung** mit einem Vision-Modell (OpenAI-kompatible `/v1/chat/completions`) und **SQLite**.
 
-Für **private Medienarchive**: Dateien bleiben bei dir; Pixel gehen nur an deine eigene Vision-API (z. B. Ollama im LAN), nicht an Cloud-Vision-Dienste.
+Dateien bleiben bei dir; Pixel gehen nur an deine konfigurierte Vision-API (z. B. Ollama im LAN), nicht an Cloud-Vision-Dienste.
 
-Bei Archiven **mit Personenfotos** optional eine Review-Queue: unsichere `age_status`-Einschätzung → Status `review` (keine Tags bis zur manuellen Freigabe).
+Optional Review-Queue bei unsicherer `age_status`-Einschätzung → Status `review`.
 
 ## Kategorien
 

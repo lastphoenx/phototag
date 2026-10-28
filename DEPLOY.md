@@ -32,9 +32,10 @@ nano phototag.env
 
 ## 3. categories.txt (privat)
 
-- Liegt nur auf dem Server, **nicht** im GitHub-Repo.
-- `post-update.sh` prüft **`scripts/required-category-tags.txt`**.
-- Fehlende Zeilen: Text aus **`scripts/category-tag-snippets.txt`** in deine `categories.txt` kopieren (oder aus deinem privaten Master).
+- Liegt nur auf dem Server, **nicht** im GitHub-Repo (`categories.example.txt` ist nur Demo).
+- `post-update.sh` zählt Tag-Zeilen — **keine** Tag-Inhalte aus dem Repo.
+- Optional in **`phototag.env`:** `PHOTOTAG_REQUIRED_TAGS_FILE` (eine Tag-ID pro Zeile; nur Server).
+- Tag-Widersprüche: **`PHOTOTAG_SANITIZE_RULES`** → JSON (Schema: `docs/sanitize-rules.example.json`). Homelab-Regeln: privates `doku/phototag/sanitize-rules.json` nach `/opt/phototag/local/` kopieren.
 
 ## 4. Verifizieren
 
@@ -46,10 +47,10 @@ set -a && source phototag.env && set +a
 
 ### push-nc testen (Schlagworte zurück nach Nextcloud)
 
-Voraussetzung: Datei in der DB muss **unter demselben relativen Pfad** in NC existieren wie `PHOTOTAG_NC_DAV_PREFIX` — z. B. DB-Pfad `foo.jpg` → NC `…/files/USER/OF/foo.jpg`.
+Voraussetzung: Datei in der DB muss **unter demselben relativen Pfad** in NC existieren wie `PHOTOTAG_NC_DAV_PREFIX` — z. B. DB-Pfad `2024/foo.jpg` → NC `…/files/USER/Photos/2024/foo.jpg` (Prefix = dein NC-Unterordner).
 
 1. **Dry-run:** `phototag push-nc --dry-run --limit 5` — zeigt, welche Pfade versucht würden.
-2. **Echter Push:** `phototag push-nc --limit 5` — bei Fehler `PROPFIND … HTTP 404` existiert die Datei in NC nicht (Test-Cache `/var/cache/phototag-test` ≠ NC, unless Dateien auch in OF liegen).
+2. **Echter Push:** `phototag push-nc --limit 5` — bei Fehler `PROPFIND … HTTP 404` existiert die Datei in NC nicht (lokaler Test-Ordner ≠ NC, unless dieselben Dateien auch unter dem DAV-Prefix liegen).
 3. **Erneut pushen:** `--force` (ignoriert `nc_pushed`-Cache).
 
 Erster Tag-Test: kleines Limit, `-v` optional.
@@ -58,15 +59,15 @@ Erster Tag-Test: kleines Limit, `-v` optional.
 
 **Im Repo:** nur Vorlagen — **auf CT 142 ist kein systemd-Timer automatisch installiert**, bis du `cp` + `enable` ausführst. Prüfen: `systemctl status phototag-night.timer` (wenn „not found“ → noch nicht eingerichtet).
 
-### Was `PHOTOTAG_SCAN_ROOT` ist (nicht `/mnt/nextcloud-of`)
+### Was `PHOTOTAG_SCAN_ROOT` ist
 
-`/mnt/nextcloud-of` war nur ein **Platzhalter** in einer frühen Vorlage. Du setzt den **echten Mount-Punkt auf dem CT**, an dem die OF-Dateien **wie auf der Platte** liegen:
+Mount- oder Cache-Pfad auf dem CT, dessen **relative Pfade** zu Nextcloud passen:
 
-- **rclone-Remote-Name** (z. B. in `~/.config/rclone/rclone.conf`) ≠ Mount-Pfad.
-- **`PHOTOTAG_NC_DAV_PREFIX=OF`** = Pfad **unter** Nextcloud-User-Files für WebDAV/push-nc.
-- **`PHOTOTAG_SCAN_ROOT`** = Wurzel für `phototag scan`, sodass relative Pfade in der DB zu NC passen (z. B. Mount zeigt Inhalt von `…/files/OF` → Scan-Root ist dieser Mount, Datei `foo.jpg` → DB-Pfad `foo.jpg` oder Unterordner).
+- **Remote-Name** (rclone o. Ä.) ≠ Mount-Pfad.
+- **`PHOTOTAG_NC_DAV_PREFIX`** = Unterordner unter `…/dav/files/USER/` für WebDAV/push-nc (z. B. `Photos`).
+- **`PHOTOTAG_SCAN_ROOT`** = Wurzel für `phototag scan`; DB speichert Pfade relativ dazu (z. B. `foo.jpg` → NC `…/USER/Photos/foo.jpg` wenn Prefix `Photos` und Scan-Root den gleichen Baum zeigt).
 
-Bisherige Tests: **`/var/cache/phototag-test`** (Kopie). Produktion: dein rclone-Mount oder später FUSE — **Pfad selbst in `phototag.env` eintragen**.
+Test: kleiner lokaler Ordner mit Kopien. Produktion: dein Mount — **Pfad in `phototag.env` eintragen**.
 
 ### Batch + Pause (15 / 60 ist nicht Pflicht)
 

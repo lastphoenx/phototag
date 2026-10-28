@@ -28,7 +28,7 @@ set +a
 
 SCAN_ROOT="${PHOTOTAG_SCAN_ROOT:-}"
 [[ -n "$SCAN_ROOT" ]] || {
-  echo "PHOTOTAG_SCAN_ROOT fehlt in $ENV_FILE (Mount-Pfad zum NC-Ordner OF, nicht der rclone-Remote-Name)." >&2
+  echo "PHOTOTAG_SCAN_ROOT fehlt in $ENV_FILE (Mount-Pfad zum Medienbaum, nicht der Remote-Name)." >&2
   exit 1
 }
 [[ -d "$SCAN_ROOT" ]] || { echo "SCAN_ROOT nicht lesbar: $SCAN_ROOT" >&2; exit 1; }

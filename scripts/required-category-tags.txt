@@ -1,5 +1,0 @@
-# Tags, die neuere phototag-Versionen erwarten (Sanitize/Prompt).
-# Fehlen in categories.txt → post-update.sh warnt.
-# Vollstaendige Taxonomie bleibt privat (Server categories.txt / lokaler Master).
-bottomless
-pose_tongue_out

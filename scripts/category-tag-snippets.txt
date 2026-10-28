@@ -1,4 +1,0 @@
-# Snippets fuer sync/post-update (public, keine private Taxonomie).
-# In Server categories.txt einfuegen — Abschnitt Körper / Pose.
-bottomless: unterhalb der Taille unbekleidet, Oberteil/Top kann getragen sein (nicht nude/topless)
-pose_tongue_out: Zunge sichtbar herausgestreckt (Gesichtsausdruck)

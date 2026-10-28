@@ -321,16 +321,26 @@ def test_sanitize_tags_conflicts(monkeypatch: pytest.MonkeyPatch):
     from phototag.cli import sanitize_tags
 
     monkeypatch.setenv("PHOTOTAG_TAG_SANITIZE", "1")
-    allowed = {"nude", "clothed", "topless", "breasts", "bottomless", "outdoor", "indoor", "location_balcony"}
-    tags, flags = sanitize_tags(["nude", "clothed", "topless", "breasts"], allowed)
-    assert "clothed" not in tags
-    assert "topless" not in tags
-    assert "nude" in tags
-    tags2, flags2 = sanitize_tags(["nude", "face_visible"], {"nude", "face_visible"})
-    assert "nude_without_body_tags" in flags2
+    monkeypatch.delenv("PHOTOTAG_SANITIZE_RULES", raising=False)
     tags3, flags3 = sanitize_tags(
         ["outdoor", "indoor", "location_balcony"], {"outdoor", "indoor", "location_balcony"}
     )
     assert "outdoor_and_indoor" in flags3
     assert "outdoor" not in tags3
     assert "location_balcony" in tags3
+
+
+def test_sanitize_rules_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import json
+
+    from phototag.cli import sanitize_tags
+
+    rules_path = tmp_path / "rules.json"
+    rules_path.write_text(
+        json.dumps({"discard_if": [{"when": "alpha", "remove": ["beta"]}]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PHOTOTAG_TAG_SANITIZE", "1")
+    monkeypatch.setenv("PHOTOTAG_SANITIZE_RULES", str(rules_path))
+    tags, _ = sanitize_tags(["alpha", "beta"], {"alpha", "beta"})
+    assert tags == ["alpha"]

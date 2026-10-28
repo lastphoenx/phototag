@@ -37,8 +37,8 @@ PHOTOTAG_NC_URL=https://nextcloud.example.com
 PHOTOTAG_NC_USER=dein_user
 PHOTOTAG_NC_TOKEN_FILE=/opt/phototag/secrets/nc-app-token.txt
 # PHOTOTAG_NC_APP_PASSWORD=
-PHOTOTAG_NC_DAV_PREFIX=OF
-PHOTOTAG_NC_CA_FILE=/opt/phototag/secrets/homelab-ca.pem
+PHOTOTAG_NC_DAV_PREFIX=Photos
+PHOTOTAG_NC_CA_FILE=/opt/phototag/secrets/ca.pem
 # PHOTOTAG_NC_TLS_INSECURE=1
 # PHOTOTAG_NC_TAG_LEVEL=public
 

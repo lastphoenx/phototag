@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Lokale Foto- UND Video-Verschlagwortung mit einem Vision-Modell + SQLite.
 
-Private Medienarchive: Bilder/Frames nur an deine eigene Vision-API (/v1), nicht an Cloud-Dienste.
+Medien bleiben lokal; Pixel gehen nur an deine konfigurierte Vision-API (/v1).
 
   python phototag.py scan   /pfad/zu/medien          # Bilder + Videos erfassen
   python phototag.py tag    [--limit 50] [--retag] [--kind image|video]
@@ -300,15 +300,14 @@ def build_prompt(categories: list[tuple[str, str]], is_video: bool) -> str:
             if is_video else "You see a single photo."
         )
         return (
-            "You tag a private photo archive. " + where + "\n"
+            "You analyze images for a personal photo collection. " + where + "\n"
             "Reply ONLY with JSON, no text before or after:\n"
             '{"age_status": "yes|no|unsure", "tags": ["..."], "observations": ["..."], "caption": "..."}\n'
             "- age_status: Are all visible people clearly adults? If unsure use \"unsure\" or \"no\".\n"
             f"- tags: apply ALL matching tags (multiple encouraged, at most {max_tags()}) and ONLY from this list:\n"
             f"{lines}\n"
-            "- If the list includes location, furniture, or pose tags, add them when clearly visible.\n"
-            "- observations: optional short phrases (German or English) for visible details with no matching "
-            "tag (expressions, props, small details), max 8 items.\n"
+            "- Follow the short hint after each tag in the list (lines \"tag: …\").\n"
+            "- observations: optional short phrases for details without a matching tag, max 8 items.\n"
             "- caption: one factual sentence in German (max 160 characters).\n"
             "Do not invent tag ids outside the list; put extras in observations."
         )
@@ -318,18 +317,15 @@ def build_prompt(categories: list[tuple[str, str]], is_video: bool) -> str:
         if is_video else "Du siehst ein einzelnes Foto."
     )
     return (
-        "Du verschlagwortest eigenes Archivmaterial. " + where + "\n"
+        "Du analysierst Bilder für ein persönliches Fotoarchiv. " + where + "\n"
         "Antworte AUSSCHLIESSLICH mit JSON, ohne Text davor oder danach:\n"
         '{"age_status": "yes|no|unsure", "tags": ["..."], "observations": ["..."], "caption": "..."}\n'
         "- age_status: Sind alle sichtbaren Personen eindeutig volljährig? Bei Zweifel \"unsure\" oder \"no\".\n"
         f"- tags: vergib ALLE zutreffenden Tags (mehrere sind erwünscht, höchstens {max_tags()}) und NUR aus dieser Liste:\n"
         f"{lines}\n"
-        "- Enthält die Liste Tags zu Ort, Möbeln oder Pose, vergib diese zusätzlich zu den "
-        "Haupt-Tags, sobald sie klar erkennbar sind.\n"
-        "- observations: optional kurze Beobachtungen zu Details ohne passenden Tag "
-        "(Mimik, Gegenstände, Pose-Details), max. 8 Einträge.\n"
+        "- Halte dich an die Kurz-Hinweise hinter jedem Tag in der Liste (Zeilen «tag: …»).\n"
+        "- observations: optional kurze Beobachtungen zu Details ohne passenden Tag, max. 8 Einträge.\n"
         "- caption: ein sachlicher Satz auf Deutsch (max. 160 Zeichen).\n"
-        "- bottomless: nur wenn Oberteil an und unterhalb Taille frei; nicht zusammen mit nude oder topless.\n"
         "Erfinde keine Tag-IDs ausserhalb der Liste; Extras gehören in observations."
     )
 
@@ -444,7 +440,78 @@ def _apply_model_output(out: dict, allowed: set[str]) -> tuple[list[str], list[s
     return tags, dropped, caption, model_raw
 
 
-_BODY_EXPLICIT = frozenset({"breasts", "nipples", "genitals_visible"})
+def _load_sanitize_rules() -> dict:
+    path = os.getenv("PHOTOTAG_SANITIZE_RULES", "").strip()
+    if not path:
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _norm_rule_tag(tag: str) -> str:
+    return str(tag).strip().lower()
+
+
+def _apply_sanitize_rules(
+    t: set[str], allowed: set[str], rules: dict, original_tags: list[str]
+) -> list[str]:
+    flags: list[str] = []
+    orig = {_norm_rule_tag(x) for x in original_tags}
+
+    for rule in rules.get("discard_if", []):
+        if not isinstance(rule, dict):
+            continue
+        when = _norm_rule_tag(rule.get("when", ""))
+        if when and when in t:
+            for r in rule.get("remove", []):
+                t.discard(_norm_rule_tag(r))
+
+    for rule in rules.get("drop_on_pair", []):
+        if not isinstance(rule, dict):
+            continue
+        parts = [_norm_rule_tag(x) for x in rule.get("if_all", [])]
+        if len(parts) < 2 or not all(p in t for p in parts):
+            continue
+        drop = _norm_rule_tag(rule.get("drop", parts[0]))
+        t.discard(drop)
+        flag = rule.get("flag")
+        if flag:
+            flags.append(str(flag))
+        add_spec = rule.get("add_if_trigger_in")
+        if isinstance(add_spec, dict):
+            add_tag = _norm_rule_tag(add_spec.get("add", ""))
+            triggers = {_norm_rule_tag(x) for x in add_spec.get("any_of", [])}
+            if add_tag in allowed and (t & triggers or orig & triggers):
+                t.add(add_tag)
+
+    for rule in rules.get("drop_on_pair_unless", []):
+        if not isinstance(rule, dict):
+            continue
+        parts = [_norm_rule_tag(x) for x in rule.get("if_all", [])]
+        unless = _norm_rule_tag(rule.get("unless", ""))
+        if len(parts) < 2 or not all(p in t for p in parts) or unless in t:
+            continue
+        drop = _norm_rule_tag(rule.get("drop", parts[0]))
+        t.discard(drop)
+        flag = rule.get("flag")
+        if flag:
+            flags.append(str(flag))
+
+    for rule in rules.get("require_any_when", []):
+        if not isinstance(rule, dict):
+            continue
+        when = _norm_rule_tag(rule.get("when", ""))
+        if when not in allowed or when not in t:
+            continue
+        any_of = {_norm_rule_tag(x) for x in rule.get("any_of", [])} & allowed
+        if any_of and not (t & any_of):
+            flags.append(str(rule.get("flag", "require_any")))
+
+    return flags
 
 
 def sanitize_tags(tags: list[str], allowed: set[str]) -> tuple[list[str], list[str]]:
@@ -454,38 +521,13 @@ def sanitize_tags(tags: list[str], allowed: set[str]) -> tuple[list[str], list[s
     t = set(tags) & allowed
     flags: list[str] = []
 
-    if "nude" in t:
-        t.discard("topless")
-        t.discard("clothed")
-        t.discard("lingerie")
-        t.discard("bottomless")
-    else:
-        if "topless" in t and "clothed" in t:
-            t.discard("topless")
-            if "bottomless" in allowed and ("genitals_visible" in t or "bottomless" in tags):
-                t.add("bottomless")
-            flags.append("topless_clothed")
-        if "topless" in t and "lingerie" in t:
-            t.discard("topless")
-            if "genitals_visible" in t and "bottomless" in allowed:
-                t.add("bottomless")
-            flags.append("topless_lingerie")
-        if "clothed" in t and "lingerie" in t:
-            t.discard("clothed")
-            flags.append("clothed_lingerie")
-
-    if "nude" in t and not (t & _BODY_EXPLICIT):
-        flags.append("nude_without_body_tags")
+    flags.extend(_apply_sanitize_rules(t, allowed, _load_sanitize_rules(), tags))
 
     if "outdoor" in t and "indoor" in t:
         flags.append("outdoor_and_indoor")
         if any(x.startswith("location_") for x in t):
             t.discard("outdoor")
             t.discard("indoor")
-
-    if "rear_view_naked" in t and "lingerie" in t and "nude" not in t:
-        t.discard("rear_view_naked")
-        flags.append("rear_naked_lingerie")
 
     cleaned = sorted(t)[: max_tags()]
     return cleaned, flags

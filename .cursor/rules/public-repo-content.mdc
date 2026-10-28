@@ -1,0 +1,26 @@
+---
+description: phototag public GitHub — no private/NSFW taxonomy in repo
+globs: "**/*"
+alwaysApply: true
+---
+
+# Public repo only
+
+phototag on GitHub is a **generic** local vision tagging tool.
+
+## Never commit
+
+- Real `categories.txt`, tag hint text, NSFW tag IDs in scripts/docs/tests
+- Homelab paths (`OF`, internal mount names), real NC prefixes beyond `Photos` / `example.com`
+- `required-category-tags`, snippet files, or post-update output that prints tag definitions
+
+## Sanitize / taxonomy
+
+- Code: generic rules only (e.g. `outdoor`/`indoor`) + JSON loader for `PHOTOTAG_SANITIZE_RULES`
+- Real conflict rules: server file or private `doku/phototag/sanitize-rules.json` — not in public repo except `docs/sanitize-rules.example.json` (placeholder tag names)
+
+## Before push
+
+- `grep` repo for private tag IDs from your taxonomy
+- `pytest -q`, `AGENTS.md` policy
+- Optional: `Safe-CLI-Helpers/tools/scan-agents-public.ps1 -Repo phototag`

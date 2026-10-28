@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Nach update-from-github.sh: Version, phototag.env vs .env.example, categories-Check.
+# Nach update-from-github.sh: Version, phototag.env vs .env.example.
+# Keine Tag-Inhalte aus dem Repo — categories.txt ist privat (Homelab/doku).
 set -euo pipefail
 
 INSTALL_DIR="${PHOTOTAG_INSTALL_DIR:-/opt/phototag}"
 ENV_FILE="${PHOTOTAG_ENV:-${INSTALL_DIR}/phototag.env}"
 EXAMPLE="${INSTALL_DIR}/.env.example"
-REQ_TAGS="${INSTALL_DIR}/scripts/required-category-tags.txt"
 
 cd "$INSTALL_DIR"
 VER="$(.venv/bin/python -c 'import importlib.metadata as m; print(m.version("phototag"))' 2>/dev/null || echo '?')"
@@ -44,45 +44,30 @@ if [[ -f "$ENV_FILE" && -f "$EXAMPLE" ]]; then
 fi
 
 echo ""
-echo "=== categories.txt (privat, wird beim Update nicht ueberschrieben) ==="
-CAT_FILE="${PHOTOTAG_CATEGORIES:-${INSTALL_DIR}/categories.txt}"
+echo "=== categories.txt (nur lokal auf dem Server, nie im GitHub-Repo) ==="
 if [[ -f "$ENV_FILE" ]]; then
   set -a
   # shellcheck disable=SC1090
   source "$ENV_FILE"
   set +a
-  CAT_FILE="${PHOTOTAG_CATEGORIES:-$CAT_FILE}"
 fi
+CAT_FILE="${PHOTOTAG_CATEGORIES:-${INSTALL_DIR}/categories.txt}"
 if [[ ! -f "$CAT_FILE" ]]; then
-  echo "FEHLT: $CAT_FILE — anlegen (cp categories.example.txt categories.txt)" >&2
-elif [[ ! -f "$REQ_TAGS" ]]; then
-  echo "Hinweis: $REQ_TAGS fehlt — Category-Check uebersprungen."
+  echo "FEHLT: $CAT_FILE — cp categories.example.txt categories.txt && anpassen" >&2
 else
-  lack=()
+  n="$(grep -cE '^[[:space:]]*[a-z][a-z0-9_]*[[:space:]]*:' "$CAT_FILE" 2>/dev/null || echo 0)"
+  echo "OK: $CAT_FILE ($n Tag-Zeilen). Taxonomie-Aenderungen: privates Homelab-doku, nicht phototag GitHub."
+fi
+
+REQ_LOCAL="${PHOTOTAG_REQUIRED_TAGS_FILE:-}"
+if [[ -n "$REQ_LOCAL" && -f "$REQ_LOCAL" ]]; then
+  lack=0
   while IFS= read -r tag || [[ -n "${tag:-}" ]]; do
     [[ -z "${tag:-}" || "$tag" =~ ^# ]] && continue
-    if ! grep -qE "^[[:space:]]*${tag}[[:space:]]*:" "$CAT_FILE"; then
-      lack+=("$tag")
-    fi
-  done < "$REQ_TAGS"
-  if [[ ${#lack[@]} -gt 0 ]]; then
-    echo "Fehlende Tag-Zeilen in $CAT_FILE:"
-    printf '  %s: …\n' "${lack[@]}"
-    echo ""
-    echo "Vorlagen (Beispiel-Hinweis — in deine Taxonomie einfuegen):"
-    while IFS= read -r tag || [[ -n "${tag:-}" ]]; do
-      [[ -z "${tag:-}" || "$tag" =~ ^# ]] && continue
-      for x in "${lack[@]}"; do
-        if [[ "$x" == "$tag" ]]; then
-          grep -E "^[[:space:]]*${tag}:" "${INSTALL_DIR}/scripts/category-tag-snippets.txt" 2>/dev/null \
-            || echo "  ${tag}: (Hinweis in privatem categories-Master nachziehen)"
-        fi
-      done
-    done < "$REQ_TAGS"
-    echo ""
-    echo "Danach optional: phototag tag --retag --limit … fuer betroffene Bilder."
-  else
-    echo "OK: required-category-tags in $CAT_FILE"
+    grep -qE "^[[:space:]]*${tag}[[:space:]]*:" "$CAT_FILE" 2>/dev/null || lack=$((lack + 1))
+  done < "$REQ_LOCAL"
+  if [[ "$lack" -gt 0 ]]; then
+    echo "Hinweis: $lack Tag-ID(s) aus PHOTOTAG_REQUIRED_TAGS_FILE fehlen in categories.txt (Details nur lokal)."
   fi
 fi
 

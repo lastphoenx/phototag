@@ -2,9 +2,15 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.3.20
+
+- **Public repo:** Snippet-/Required-Tag-Dateien entfernt; `post-update.sh` ohne Tag-Texte.
+- Sanitize: nur generisches `outdoor`/`indoor` im Code; weitere Regeln via **`PHOTOTAG_SANITIZE_RULES`** (JSON, Schema `docs/sanitize-rules.example.json`).
+- Doku/Beispiele generisch (kein Homelab-Ordnerprefix in Referenz).
+
 ## 0.3.19
 
-- `phototag.env.reference` — Soll-Vorlage zum Vergleich; `sync-phototag-env.sh --catalog` zeigt optionale Keys.
+- `docs/phototag-env.reference.txt` — Soll-Vorlage; `sync-phototag-env.sh --catalog` zeigt optionale Keys.
 - `DEPLOY.md`: push-nc Testablauf.
 
 ## 0.3.18
@@ -28,7 +34,7 @@ Format: Version → was für **Deploy** relevant ist.
 ## 0.3.15
 
 - **Env (neu, in `.env.example`):** `PHOTOTAG_TAG_SANITIZE`, `PHOTOTAG_SCAN_ROOT`, `PHOTOTAG_NIGHT_*` — in `phototag.env` nachziehen.
-- **categories.txt:** Tag **`bottomless`** (siehe `scripts/category-tag-snippets.txt`).
+- **categories.txt:** erweiterte Taxonomie nur lokal auf dem Server.
 - **Nacht:** `scripts/night-tag-loop.sh`, systemd unter `scripts/systemd/`.
 - Tag-Widersprüche → Status `review` (`phototag review` zeigt `[sanitize:…]`).
 
