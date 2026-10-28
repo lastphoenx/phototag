@@ -17,6 +17,14 @@ Eigene Taxonomie nur lokal oder per `PHOTOTAG_CATEGORIES`.
 
 ## Installation (Server)
 
+**Deploy-Runbook:** [`DEPLOY.md`](DEPLOY.md) · Release-Notizen: [`CHANGELOG.md`](CHANGELOG.md)
+
+```bash
+cd /opt/phototag
+./scripts/update-from-github.sh    # ruft post-update.sh auf
+./scripts/sync-phototag-env.sh --apply && nano phototag.env
+```
+
 Release-Pin optional per **Commit-SHA** oder Git-Tag; Standard auf dem Server: **`main`**:
 
 ```bash

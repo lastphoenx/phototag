@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Ergaenzt phototag.env um fehlende Keys aus .env.example (aus .example als Kommentarzeilen).
+# Ueberschreibt keine bestehenden Werte.
+#
+#   ./scripts/sync-phototag-env.sh           # zeigt Diff
+#   ./scripts/sync-phototag-env.sh --apply   # haengt fehlende Example-Zeilen an
+set -euo pipefail
+
+INSTALL_DIR="${PHOTOTAG_INSTALL_DIR:-/opt/phototag}"
+ENV_FILE="${PHOTOTAG_ENV:-${INSTALL_DIR}/phototag.env}"
+EXAMPLE="${INSTALL_DIR}/.env.example"
+APPLY=0
+[[ "${1:-}" == "--apply" ]] && APPLY=1
+
+[[ -f "$EXAMPLE" ]] || { echo "Fehlt: $EXAMPLE" >&2; exit 1; }
+
+if [[ ! -f "$ENV_FILE" ]]; then
+  cp "$EXAMPLE" "$ENV_FILE"
+  chmod 600 "$ENV_FILE" 2>/dev/null || true
+  echo "Angelegt: $ENV_FILE (aus .env.example) — Werte anpassen, chmod 600."
+  exit 0
+fi
+
+# shellcheck source=lib/env-keys.sh
+source "${INSTALL_DIR}/scripts/lib/env-keys.sh"
+
+mapfile -t have < <(env_keys_from_file "$ENV_FILE")
+mapfile -t want < <(env_keys_from_file "$EXAMPLE")
+
+missing=()
+for k in "${want[@]}"; do
+  found=0
+  for h in "${have[@]}"; do
+    [[ "$h" == "$k" ]] && { found=1; break; }
+  done
+  [[ "$found" -eq 0 ]] && missing+=("$k")
+done
+
+if [[ ${#missing[@]} -eq 0 ]]; then
+  echo "phototag.env: alle Keys aus .env.example vorhanden ($ENV_FILE)."
+  exit 0
+fi
+
+echo "Fehlende Keys in phototag.env (stehen in .env.example):"
+printf '  %s\n' "${missing[@]}"
+
+if [[ "$APPLY" -ne 1 ]]; then
+  echo ""
+  echo "Anhaengen: ./scripts/sync-phototag-env.sh --apply"
+  exit 0
+fi
+
+{
+  echo ""
+  echo "# --- ergaenzt $(date -Is) aus .env.example (phototag sync) ---"
+  while IFS= read -r line; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && { echo "$line"; continue; }
+    [[ "$line" =~ ^[[:space:]]*PHOTOTAG_[A-Z0-9_]+= ]] || continue
+    key="${line%%=*}"
+    key="${key// /}"
+    for m in "${missing[@]}"; do
+      if [[ "$key" == "$m" ]]; then
+        echo "# $line"
+        break
+      fi
+    done
+  done < "$EXAMPLE"
+} >> "$ENV_FILE"
+
+echo "Angehaengt an $ENV_FILE — bitte Kommentare (#) bei Bedarf entfernen und Werte setzen."

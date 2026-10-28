@@ -130,3 +130,8 @@ echo "OK phototag $INSTALLED in $INSTALL_DIR (REF=$REF). categories.txt unverän
 if [[ "$REF" != main && "$REF" != master ]] && [[ ! "$REF" =~ ^[0-9a-f]{7,40}$ ]]; then
   echo "Hinweis: Tag-Pin — fuer main: unset PHOTOTAG_UPDATE_REF" >&2
 fi
+
+if [[ -x "$INSTALL_DIR/scripts/post-update.sh" ]]; then
+  echo ""
+  "$INSTALL_DIR/scripts/post-update.sh" || true
+fi
