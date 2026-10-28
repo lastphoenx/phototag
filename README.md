@@ -26,10 +26,11 @@ bash /opt/phototag/scripts/update-from-github.sh
 cp categories.example.txt categories.txt && nano categories.txt
 ```
 
-Update (zieht **main** von GitHub, lässt `categories.txt` / `.env` / DB):
+Update (zieht **main** von GitHub, lässt `categories.txt` / `phototag.env` / DB):
 
 ```bash
 ./scripts/update-from-github.sh
+.venv/bin/phototag version
 ```
 
 Optional fixieren: `PHOTOTAG_UPDATE_REF=<commit-sha>` oder Tag (nur fuer `update-from-github.sh`; nicht `PHOTOTAG_REF` in `phototag.env` — das wuerde sonst jedes Update pinnen, wenn du `source phototag.env` nutzt).

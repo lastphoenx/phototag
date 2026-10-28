@@ -1,3 +1,8 @@
 """Local photo/video tagging with a vision LLM and SQLite."""
 
-__version__ = "0.3.0"
+try:
+    from importlib.metadata import version
+
+    __version__ = version("phototag")
+except Exception:
+    __version__ = "0.0.0"

@@ -639,6 +639,12 @@ def cmd_push_nc(args) -> None:
     print(f"-- {files_ok} Datei(en), {tags_pushed} Tag-Zuweisung(en)")
 
 
+def cmd_version(_args) -> None:
+    from phototag import __version__
+
+    print(__version__)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -656,6 +662,7 @@ def main() -> None:
     sub.add_parser("stats").set_defaults(fn=cmd_stats)
     sub.add_parser("review").set_defaults(fn=cmd_review)
     sub.add_parser("reindex").set_defaults(fn=cmd_reindex)
+    sub.add_parser("version", help="Installierte Paketversion (pyproject / pip -e)").set_defaults(fn=cmd_version)
     pn = sub.add_parser("push-nc", help="Tags als Nextcloud-Schlagworte (Systemtags) setzen")
     pn.add_argument("--limit", type=int, default=0)
     pn.add_argument("--dry-run", action="store_true")
