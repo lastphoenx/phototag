@@ -37,6 +37,14 @@ def max_tags() -> int:
     return int(os.getenv("PHOTOTAG_MAX_TAGS", "12"))
 
 
+def reasoning_effort() -> str:
+    """Ollama /v1: 'none' deaktiviert Denk-Modus (chat_template_kwargs/think oft ignoriert).
+
+    PHOTOTAG_REASONING_EFFORT leer = Feld nicht senden (Backends ohne reasoning_effort).
+    """
+    return os.getenv("PHOTOTAG_REASONING_EFFORT", "none").strip()
+
+
 def thumb_side() -> int:
     return int(os.getenv("PHOTOTAG_THUMB_SIDE", "320"))
 
@@ -54,7 +62,7 @@ def nc_user() -> str:
 
 
 def nc_dav_prefix() -> str:
-    """Path under .../remote.php/dav/files/USER/ matching phototag scan root (e.g. Photos/OF)."""
+    """Path under .../remote.php/dav/files/USER/ matching phototag scan root."""
     return os.getenv("PHOTOTAG_NC_DAV_PREFIX", "").strip()
 
 
@@ -68,6 +76,12 @@ def nc_app_token() -> str:
     if path:
         return Path(path).read_text(encoding="utf-8").strip()
     return ""
+
+
+def nc_tag_level() -> str:
+    """Nextcloud system tag visibility: public | restricted | invisible."""
+    level = os.getenv("PHOTOTAG_NC_TAG_LEVEL", "public").strip().lower()
+    return level if level in ("public", "restricted", "invisible") else "public"
 
 
 def nc_tls_insecure() -> bool:

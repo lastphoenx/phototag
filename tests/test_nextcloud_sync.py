@@ -117,3 +117,44 @@ def test_push_nc_mock_server(nc_env: Path, monkeypatch: pytest.MonkeyPatch):
     n = push_image_tags(con, cfg, image_id=iid, path="a/b.jpg", tags=["outdoor"], tag_cache=cache)
     assert n == 1
     server.shutdown()
+
+
+def _tag_post_capture(monkeypatch: pytest.MonkeyPatch):
+    bodies: list[dict] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_a) -> None:
+            return
+
+        def do_POST(self) -> None:
+            raw = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
+            bodies.append(json.loads(raw))
+            self.send_response(201)
+            self.send_header("Content-Location", "/remote.php/dav/systemtags/9")
+            self.end_headers()
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    return server, bodies, NcConfig(base_url=base, user="u", app_token="s", dav_prefix="")
+
+
+@pytest.mark.parametrize(
+    "level,visible,assignable",
+    [
+        (None, True, True),
+        ("public", True, True),
+        ("restricted", True, False),
+        ("invisible", False, False),
+        ("unsinn", True, True),
+    ],
+)
+def test_tag_level_controls_visibility(monkeypatch: pytest.MonkeyPatch, level, visible, assignable):
+    if level is None:
+        monkeypatch.delenv("PHOTOTAG_NC_TAG_LEVEL", raising=False)
+    else:
+        monkeypatch.setenv("PHOTOTAG_NC_TAG_LEVEL", level)
+    server, bodies, cfg = _tag_post_capture(monkeypatch)
+    assert ensure_system_tag(cfg, {}, "outdoor") == 9
+    assert (bodies[0]["userVisible"], bodies[0]["userAssignable"]) == (visible, assignable)
+    server.shutdown()

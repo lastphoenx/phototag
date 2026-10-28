@@ -268,3 +268,34 @@ def test_video_tag_mock_api(tmp_path: Path, env_db: Path, monkeypatch: pytest.Mo
     assert row["status"] == "tagged"
     assert row["frames"] == 5
     server.shutdown()
+
+
+def test_payload_disables_thinking_for_ollama(monkeypatch: pytest.MonkeyPatch):
+    seen: list[dict] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            seen.append(json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0)))))
+            body = json.dumps(
+                {"choices": [{"message": {"content": '{"age_status":"yes","tags":[],"caption":"x"}'}}]}
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_a) -> None:
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("PHOTOTAG_API", f"http://127.0.0.1:{server.server_address[1]}/v1")
+    from phototag.cli import ask_model
+
+    ask_model([b"\xff\xd8\xff\xd9"], [("outdoor", "x")], False)
+    assert seen[-1]["reasoning_effort"] == "none"
+
+    monkeypatch.setenv("PHOTOTAG_REASONING_EFFORT", "")
+    ask_model([b"\xff\xd8\xff\xd9"], [("outdoor", "x")], False)
+    assert "reasoning_effort" not in seen[-1]
+    server.shutdown()

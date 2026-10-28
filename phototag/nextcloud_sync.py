@@ -6,6 +6,7 @@ import json
 import re
 import ssl
 import sqlite3
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -17,11 +18,20 @@ from dataclasses import dataclass
 from phototag.config import (
     nc_app_token,
     nc_dav_prefix,
+    nc_tag_level,
     nc_tls_ca_file,
     nc_tls_insecure,
     nc_url,
     nc_user,
 )
+
+_insecure_warned = False
+
+_TAG_LEVELS = {
+    "public": (True, True),
+    "restricted": (True, False),
+    "invisible": (False, False),
+}
 
 NS = {
     "d": "DAV:",
@@ -79,10 +89,18 @@ def _ssl_context() -> ssl.SSLContext:
         if not cap.is_file():
             raise RuntimeError(
                 f"PHOTOTAG_NC_CA_FILE nicht gefunden: {ca} "
-                "(Datei anlegen, Zeile entfernen, oder PHOTOTAG_NC_TLS_INSECURE=1 nur im VLAN)"
+                "(Datei anlegen, PHOTOTAG_NC_CA_FILE entfernen, oder PHOTOTAG_NC_TLS_INSECURE=1)"
             )
         ctx.load_verify_locations(cafile=str(cap))
     if nc_tls_insecure():
+        global _insecure_warned
+        if not _insecure_warned:
+            print(
+                "phototag: WARNUNG: PHOTOTAG_NC_TLS_INSECURE=1 — TLS wird nicht verifiziert. "
+                "Besser PHOTOTAG_NC_CA_FILE setzen.",
+                file=sys.stderr,
+            )
+            _insecure_warned = True
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
     return ctx
@@ -208,8 +226,9 @@ def ensure_system_tag(cfg: NcConfig, cache: dict[str, int], tag_name: str) -> in
     if key in cache:
         return cache[key]
     url = f"{cfg.base_url}/remote.php/dav/systemtags/"
+    visible, assignable = _TAG_LEVELS[nc_tag_level()]
     payload = json.dumps(
-        {"name": key, "userVisible": True, "userAssignable": True},
+        {"name": key, "userVisible": visible, "userAssignable": assignable},
     ).encode("utf-8")
     status, _raw, resp = _request_ex(
         cfg,
@@ -268,6 +287,7 @@ def push_image_tags(
     """Returns number of tags newly pushed."""
     if dry_run:
         return len(tags)
+    ensure_nc_pushed_table(con)
     fid = file_id(cfg, path)
     pushed = 0
     now = time.time()

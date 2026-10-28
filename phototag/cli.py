@@ -53,6 +53,7 @@ from phototag.config import (
     max_side,
     max_tags,
     model_name,
+    reasoning_effort,
     thumb_quality,
     thumb_side,
     video_frames,
@@ -294,8 +295,8 @@ def build_prompt(categories: list[tuple[str, str]], is_video: bool) -> str:
         "- age_status: Sind alle sichtbaren Personen eindeutig volljährig? Bei Zweifel \"unsure\" oder \"no\".\n"
         f"- tags: vergib ALLE zutreffenden Tags (mehrere sind erwünscht, höchstens {max_tags()}) und NUR aus dieser Liste:\n"
         f"{lines}\n"
-        "- Wenn location_*, furniture_* oder pose_* in der Liste stehen: passende Ort-, Möbel- und Pose-Tags "
-        "mitvergeben (nicht nur nude/breasts).\n"
+        "- Enthält die Liste Tags zu Ort, Möbeln oder Pose, vergib diese zusätzlich zu den "
+        "Haupt-Tags, sobald sie klar erkennbar sind.\n"
         "- caption: ein sachlicher Satz auf Deutsch (max. 160 Zeichen).\n"
         "Erfinde keine Tags ausserhalb der Liste."
     )
@@ -352,6 +353,9 @@ def ask_model(frames: list[bytes], categories: list[tuple[str, str]], is_video: 
         "chat_template_kwargs": {"enable_thinking": False},
         "messages": [{"role": "user", "content": content}],
     }
+    effort = reasoning_effort()
+    if effort:
+        payload["reasoning_effort"] = effort
     body = json.dumps(payload).encode()
     url = f"{api_url()}/chat/completions"
     last_err: Exception | None = None
