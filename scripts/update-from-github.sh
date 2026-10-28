@@ -12,11 +12,18 @@ GITHUB_REPO="${PHOTOTAG_GITHUB_REPO:-lastphoenx/phototag}"
 
 REF="${PHOTOTAG_UPDATE_REF:-main}"
 
-if [[ -f "$INSTALL_DIR/phototag.env" ]] && grep -qE '^[[:space:]]*PHOTOTAG_(REF|TAG)=' "$INSTALL_DIR/phototag.env" 2>/dev/null; then
-  echo "Hinweis: phototag.env enthaelt PHOTOTAG_REF/PHOTOTAG_TAG — fuer Updates ignoriert; Zeilen loeschen (Pin: PHOTOTAG_UPDATE_REF)." >&2
-fi
+_strip_legacy_update_pins() {
+  local f="$INSTALL_DIR/phototag.env"
+  [[ -f "$f" ]] || return 0
+  if grep -qE '^[[:space:]]*PHOTOTAG_(REF|TAG)=' "$f" 2>/dev/null; then
+    sed -i '/^[[:space:]]*PHOTOTAG_REF=/d; /^[[:space:]]*PHOTOTAG_TAG=/d' "$f"
+    echo "phototag.env: PHOTOTAG_REF/PHOTOTAG_TAG entfernt (veralteter Update-Pin; Pin nur: PHOTOTAG_UPDATE_REF=tag ./scripts/update-from-github.sh)." >&2
+  fi
+}
+_strip_legacy_update_pins
+
 if [[ -n "${PHOTOTAG_REF:-}" || -n "${PHOTOTAG_TAG:-}" ]]; then
-  echo "Hinweis: PHOTOTAG_REF/PHOTOTAG_TAG in der Shell — fuer Updates ignoriert (default main, Pin: PHOTOTAG_UPDATE_REF)." >&2
+  echo "Hinweis: PHOTOTAG_REF/PHOTOTAG_TAG noch in dieser Shell — Updates nutzen trotzdem main. Einmal: unset PHOTOTAG_REF PHOTOTAG_TAG (oder neues ssh)." >&2
 fi
 
 if [[ "$REF" == main || "$REF" == master ]]; then
