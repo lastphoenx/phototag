@@ -21,9 +21,11 @@ Falls das Update-Skript sehr alt ist: `./scripts/bootstrap-update-from-main.sh` 
 
 ```bash
 cd /opt/phototag
-./scripts/post-update.sh          # zeigt fehlende Env-Keys + Category-Tags
-./scripts/sync-phototag-env.sh --apply   # fehlende Keys aus .env.example an phototag.env (kommentiert)
-nano phototag.env                 # neue Zeilen aktivieren / Werte setzen
+./scripts/post-update.sh
+./scripts/sync-phototag-env.sh              # fehlende *aktive* Keys
+./scripts/sync-phototag-env.sh --catalog    # alle optionalen Keys aus .env.example
+diff -u docs/phototag-env.reference.txt phototag.env  # grober Soll-Ist-Vergleich
+nano phototag.env
 ```
 
 **`.env.example`** im Repo ist die **Referenz aller Keys** — `phototag.env` wird beim rsync **nicht** überschrieben. Neue Versionen fügen Keys hinzu; `sync-phototag-env.sh` vergleicht nur **aktive** Zeilen in `.env.example` (ohne `#`). Kommentierte Optionen dort sind Doku — kein Muss. **Nextcloud:** `PHOTOTAG_NC_TOKEN_FILE` **oder** `PHOTOTAG_NC_APP_PASSWORD` reicht.
@@ -41,6 +43,14 @@ set -a && source phototag.env && set +a
 .venv/bin/phototag version
 .venv/bin/phototag stats
 ```
+
+### push-nc testen (Schlagworte zurück nach Nextcloud)
+
+Voraussetzung: Datei in der DB muss **unter demselben relativen Pfad** in NC existieren wie `PHOTOTAG_NC_DAV_PREFIX` — z. B. DB-Pfad `foo.jpg` → NC `…/files/USER/OF/foo.jpg`.
+
+1. **Dry-run:** `phototag push-nc --dry-run --limit 5` — zeigt, welche Pfade versucht würden.
+2. **Echter Push:** `phototag push-nc --limit 5` — bei Fehler `PROPFIND … HTTP 404` existiert die Datei in NC nicht (Test-Cache `/var/cache/phototag-test` ≠ NC, unless Dateien auch in OF liegen).
+3. **Erneut pushen:** `--force` (ignoriert `nc_pushed`-Cache).
 
 Erster Tag-Test: kleines Limit, `-v` optional.
 

@@ -1,0 +1,48 @@
+# Referenz phototag.env — zum Vergleichen mit /opt/phototag/phototag.env
+# Nicht automatisch deployen. Aktiv = Zeile ohne # am Anfang.
+#
+# Legende:
+#   [PFLICHT produktiv]  muss gesetzt sein
+#   [empfohlen]            sollte gesetzt sein
+#   [optional]             Default in Code ok; nur bei Bedarf aktivieren
+#   [nur Doku]             nie in phototag.env — nur Shell oder Kommentar
+
+# --- [PFLICHT produktiv] ---
+PHOTOTAG_DB=/opt/phototag/state/photo_tag.db
+PHOTOTAG_API=http://127.0.0.1:11434/v1
+PHOTOTAG_MODEL=dein-ollama-modell-name
+PHOTOTAG_CATEGORIES=/opt/phototag/categories.txt
+
+# --- [empfohlen] Vision / Qualität ---
+PHOTOTAG_REASONING_EFFORT=none
+PHOTOTAG_MAX_TOKENS=2048
+PHOTOTAG_VIDEO_FRAMES=6
+PHOTOTAG_MAX_TAGS=12
+
+# --- [optional] Prompt / Debug (Defaults: de, sanitize an, verbose aus) ---
+# PHOTOTAG_PROMPT_LANG=de
+# PHOTOTAG_TAG_SANITIZE=1
+# PHOTOTAG_VERBOSE=1
+
+# --- [empfohlen] Nacht-Lauf (wenn Timer aktiv) ---
+PHOTOTAG_SCAN_ROOT=/pfad/zum/mount-oder-cache
+PHOTOTAG_NIGHT_BATCH=25
+PHOTOTAG_NIGHT_SLEEP=30
+PHOTOTAG_NIGHT_END_HOUR=7
+PHOTOTAG_NIGHT_IMAGES_FIRST=1
+# PHOTOTAG_NIGHT_KIND=image
+
+# --- [empfohlen] Nextcloud push-nc — Token-Datei ODER Inline-Passwort ---
+PHOTOTAG_NC_URL=https://nextcloud.example.com
+PHOTOTAG_NC_USER=dein_user
+PHOTOTAG_NC_TOKEN_FILE=/opt/phototag/secrets/nc-app-token.txt
+# PHOTOTAG_NC_APP_PASSWORD=
+PHOTOTAG_NC_DAV_PREFIX=OF
+PHOTOTAG_NC_CA_FILE=/opt/phototag/secrets/homelab-ca.pem
+# PHOTOTAG_NC_TLS_INSECURE=1
+# PHOTOTAG_NC_TAG_LEVEL=public
+
+# --- [nur Doku] Update-Pin — NICHT in phototag.env ---
+# Einmalig in der Shell: PHOTOTAG_UPDATE_REF=v0.3.7 ./scripts/update-from-github.sh
+
+# CT: ./scripts/sync-phototag-env.sh --catalog

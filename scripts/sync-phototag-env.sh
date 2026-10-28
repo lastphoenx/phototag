@@ -10,9 +10,24 @@ INSTALL_DIR="${PHOTOTAG_INSTALL_DIR:-/opt/phototag}"
 ENV_FILE="${PHOTOTAG_ENV:-${INSTALL_DIR}/phototag.env}"
 EXAMPLE="${INSTALL_DIR}/.env.example"
 APPLY=0
-[[ "${1:-}" == "--apply" ]] && APPLY=1
+CATALOG=0
+for arg in "$@"; do
+  case "$arg" in
+    --apply) APPLY=1 ;;
+    --catalog) CATALOG=1 ;;
+  esac
+done
 
 [[ -f "$EXAMPLE" ]] || { echo "Fehlt: $EXAMPLE" >&2; exit 1; }
+
+if [[ "$CATALOG" -eq 1 ]]; then
+  echo "Optionale / dokumentierte Zeilen in .env.example (muessen nicht in phototag.env stehen):"
+  echo "---"
+  grep -E '^[[:space:]]*#' "$EXAMPLE" | grep -E 'PHOTOTAG_|Pin|Nextcloud|Nacht|Ollama' || true
+  echo "---"
+  echo "Vollstaendige Referenz: docs/phototag-env.reference.txt und DEPLOY.md"
+  exit 0
+fi
 
 if [[ ! -f "$ENV_FILE" ]]; then
   cp "$EXAMPLE" "$ENV_FILE"

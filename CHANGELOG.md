@@ -2,6 +2,11 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.3.19
+
+- `phototag.env.reference` — Soll-Vorlage zum Vergleich; `sync-phototag-env.sh --catalog` zeigt optionale Keys.
+- `DEPLOY.md`: push-nc Testablauf.
+
 ## 0.3.18
 
 - `sync-phototag-env.sh`: nur **aktive** Keys aus `.env.example` (kommentierte Optionen ≠ fehlend); `PHOTOTAG_NC_TOKEN_FILE` ersetzt `PHOTOTAG_NC_APP_PASSWORD` in der Prüfung.
