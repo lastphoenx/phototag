@@ -26,7 +26,7 @@ cd /opt/phototag
 nano phototag.env                 # neue Zeilen aktivieren / Werte setzen
 ```
 
-**`.env.example`** im Repo ist die **Referenz aller Keys** — `phototag.env` wird beim rsync **nicht** überschrieben. Neue Versionen fügen Keys hinzu; ohne `sync-phototag-env.sh` fehlen dir Features still (Nacht-Lauf, Sanitize, …).
+**`.env.example`** im Repo ist die **Referenz aller Keys** — `phototag.env` wird beim rsync **nicht** überschrieben. Neue Versionen fügen Keys hinzu; `sync-phototag-env.sh` vergleicht nur **aktive** Zeilen in `.env.example` (ohne `#`). Kommentierte Optionen dort sind Doku — kein Muss. **Nextcloud:** `PHOTOTAG_NC_TOKEN_FILE` **oder** `PHOTOTAG_NC_APP_PASSWORD` reicht.
 
 ## 3. categories.txt (privat)
 

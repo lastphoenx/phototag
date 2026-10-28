@@ -36,6 +36,24 @@ for k in "${want[@]}"; do
   [[ "$found" -eq 0 ]] && missing+=("$k")
 done
 
+# Nextcloud: Token-Datei oder Inline-App-Passwort — eines reicht
+if printf '%s\n' "${have[@]}" | grep -qx 'PHOTOTAG_NC_TOKEN_FILE'; then
+  tmp=()
+  for k in "${missing[@]}"; do
+    [[ "$k" == "PHOTOTAG_NC_APP_PASSWORD" ]] && continue
+    tmp+=("$k")
+  done
+  missing=("${tmp[@]}")
+fi
+if printf '%s\n' "${have[@]}" | grep -qx 'PHOTOTAG_NC_APP_PASSWORD'; then
+  tmp=()
+  for k in "${missing[@]}"; do
+    [[ "$k" == "PHOTOTAG_NC_TOKEN_FILE" ]] && continue
+    tmp+=("$k")
+  done
+  missing=("${tmp[@]}")
+fi
+
 if [[ ${#missing[@]} -eq 0 ]]; then
   echo "phototag.env: alle Keys aus .env.example vorhanden ($ENV_FILE)."
   exit 0
