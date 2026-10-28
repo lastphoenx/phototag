@@ -1,4 +1,4 @@
-"""Push phototag tags to Nextcloud Schlagworte (system tags) via WebDAV + OCS."""
+"""Push phototag tags to Nextcloud Schlagworte (system tags) via WebDAV."""
 from __future__ import annotations
 
 import base64
@@ -93,6 +93,15 @@ def _urlopen(req: urllib.request.Request, timeout: int = 120):
     return opener.open(req, timeout=timeout)
 
 
+def _http_error_hint(status: int, raw: bytes) -> str:
+    text = raw.decode("utf-8", errors="replace").strip()
+    text = re.sub(r"\s+", " ", text)[:240]
+    extra = f" — {text}" if text else ""
+    if status == 400 and "untrusted" in text.lower():
+        return f"HTTP {status} (trusted_domains?){extra}"
+    return f"HTTP {status}{extra}"
+
+
 def _request(
     cfg: NcConfig,
     method: str,
@@ -113,10 +122,8 @@ def _request_ex(
     data: bytes | None = None,
     headers: dict[str, str] | None = None,
 ) -> tuple[int, bytes, object]:
-    hdrs = {
-        "Authorization": _auth_header(cfg),
-        "OCS-APIRequest": "true",
-    }
+    # Kein OCS-APIRequest auf WebDAV — bricht SabreDAV/PROPFIND auf manchen NC-Versionen.
+    hdrs: dict[str, str] = {"Authorization": _auth_header(cfg)}
     if headers:
         hdrs.update(headers)
     req = urllib.request.Request(url, data=data, method=method, headers=hdrs)
@@ -185,7 +192,7 @@ def _list_system_tags(cfg: NcConfig) -> dict[str, int]:
         headers={"Depth": "1", "Content-Type": "application/xml"},
     )
     if status not in (207, 200):
-        raise RuntimeError(f"Systemtags auflisten: HTTP {status}")
+        raise RuntimeError(f"Systemtags auflisten: {_http_error_hint(status, raw)}")
     return _parse_systemtags_multistatus(raw)
 
 
