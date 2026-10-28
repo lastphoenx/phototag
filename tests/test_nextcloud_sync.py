@@ -6,7 +6,7 @@ import sqlite3
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
 import pytest
 
@@ -40,6 +40,19 @@ def test_push_nc_mock_server(nc_env: Path, monkeypatch: pytest.MonkeyPatch):
             return
 
         def do_PROPFIND(self) -> None:
+            if "systemtags" in self.path:
+                self.send_response(207)
+                self.send_header("Content-Type", "application/xml")
+                self.end_headers()
+                self.wfile.write(
+                    b'<?xml version="1.0"?><d:multistatus xmlns:d="DAV:" '
+                    b'xmlns:oc="http://owncloud.org/ns">'
+                    b'<d:response><d:href>/remote.php/dav/systemtags/7</d:href>'
+                    b"<d:propstat><d:prop><oc:id>7</oc:id>"
+                    b"<oc:display-name>outdoor</oc:display-name></d:prop></d:propstat></d:response>"
+                    b"</d:multistatus>"
+                )
+                return
             self.send_response(207)
             self.send_header("Content-Type", "application/xml")
             self.end_headers()
@@ -51,27 +64,24 @@ def test_push_nc_mock_server(nc_env: Path, monkeypatch: pytest.MonkeyPatch):
             )
 
         def do_GET(self) -> None:
-            if "systemtags" in self.path:
-                body = json.dumps({"ocs": {"meta": {"status": "ok"}, "data": []}}).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(body)
+            self.send_response(404)
+            self.end_headers()
 
         def do_POST(self) -> None:
+            if "systemtags" in self.path and "systemtags-relations" not in self.path:
+                length = int(self.headers.get("Content-Length", 0))
+                raw = self.rfile.read(length).decode()
+                name = "outdoor"
+                if raw.strip().startswith("{"):
+                    name = json.loads(raw).get("name", name)
+                self.send_response(201)
+                self.send_header("Content-Location", f"/remote.php/dav/systemtags/7")
+                self.end_headers()
+                return
             length = int(self.headers.get("Content-Length", 0))
-            raw = self.rfile.read(length).decode()
-            name = "outdoor"
-            if raw.strip().startswith("{"):
-                name = json.loads(raw).get("name", name)
-            else:
-                qs = parse_qs(raw)
-                name = qs.get("name", [name])[0]
-            body = json.dumps({"ocs": {"meta": {"status": "ok"}, "data": {"id": 7, "name": name}}}).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
+            self.rfile.read(length)
+            self.send_response(404)
             self.end_headers()
-            self.wfile.write(body)
 
         def do_PUT(self) -> None:
             path = urlparse(self.path).path

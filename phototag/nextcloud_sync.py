@@ -101,6 +101,18 @@ def _request(
     data: bytes | None = None,
     headers: dict[str, str] | None = None,
 ) -> tuple[int, bytes]:
+    status, raw, _ = _request_ex(cfg, method, url, data=data, headers=headers)
+    return status, raw
+
+
+def _request_ex(
+    cfg: NcConfig,
+    method: str,
+    url: str,
+    *,
+    data: bytes | None = None,
+    headers: dict[str, str] | None = None,
+) -> tuple[int, bytes, object]:
     hdrs = {
         "Authorization": _auth_header(cfg),
         "OCS-APIRequest": "true",
@@ -110,9 +122,31 @@ def _request(
     req = urllib.request.Request(url, data=data, method=method, headers=hdrs)
     try:
         with _urlopen(req, timeout=120) as resp:
-            return resp.status, resp.read()
+            return resp.status, resp.read(), resp
     except urllib.error.HTTPError as exc:
-        return exc.code, exc.read()
+        return exc.code, exc.read(), exc
+
+
+_PROPFIND_SYSTEMTAGS = (
+    '<?xml version="1.0"?>'
+    '<d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" '
+    'xmlns:nc="http://nextcloud.org/ns">'
+    "<d:prop><oc:id/><oc:display-name/></d:prop></d:propfind>"
+).encode("utf-8")
+
+
+def _parse_systemtags_multistatus(raw: bytes) -> dict[str, int]:
+    root = ET.fromstring(raw)
+    out: dict[str, int] = {}
+    for response in root.findall(f".//{{{NS['d']}}}response"):
+        id_el = response.find(f".//{{{NS['oc']}}}id")
+        name_el = response.find(f".//{{{NS['oc']}}}display-name")
+        if id_el is None or name_el is None or not id_el.text or not name_el.text:
+            continue
+        if not id_el.text.isdigit():
+            continue
+        out[name_el.text.strip().lower()] = int(id_el.text)
+    return out
 
 
 def file_id(cfg: NcConfig, relative_path: str) -> int:
@@ -142,51 +176,45 @@ def file_id(cfg: NcConfig, relative_path: str) -> int:
 
 
 def _list_system_tags(cfg: NcConfig) -> dict[str, int]:
-    url = f"{cfg.base_url}/ocs/v2.php/apps/files/api/v1/systemtags?format=json"
-    status, raw = _request(cfg, "GET", url, headers={"Accept": "application/json"})
-    if status != 200:
+    url = f"{cfg.base_url}/remote.php/dav/systemtags/"
+    status, raw = _request(
+        cfg,
+        "PROPFIND",
+        url,
+        data=_PROPFIND_SYSTEMTAGS,
+        headers={"Depth": "1", "Content-Type": "application/xml"},
+    )
+    if status not in (207, 200):
         raise RuntimeError(f"Systemtags auflisten: HTTP {status}")
-    payload = json.loads(raw.decode("utf-8"))
-    if payload.get("ocs", {}).get("meta", {}).get("status") != "ok":
-        raise RuntimeError("OCS systemtags list failed")
-    out: dict[str, int] = {}
-    for row in payload.get("ocs", {}).get("data", []) or []:
-        name = (row.get("name") or "").strip().lower()
-        tid = row.get("id")
-        if name and tid is not None:
-            out[name] = int(tid)
-    return out
+    return _parse_systemtags_multistatus(raw)
 
 
 def ensure_system_tag(cfg: NcConfig, cache: dict[str, int], tag_name: str) -> int:
     key = tag_name.strip().lower()
     if key in cache:
         return cache[key]
-    url = f"{cfg.base_url}/ocs/v2.php/apps/files/api/v1/systemtags?format=json"
+    url = f"{cfg.base_url}/remote.php/dav/systemtags/"
     payload = json.dumps(
         {"name": key, "userVisible": True, "userAssignable": True},
     ).encode("utf-8")
-    status, raw = _request(
+    status, _raw, resp = _request_ex(
         cfg,
         "POST",
         url,
         data=payload,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        headers={"Content-Type": "application/json"},
     )
-    if status in (200, 201):
-        try:
-            data = json.loads(raw.decode("utf-8"))
-            tid = data.get("ocs", {}).get("data", {}).get("id")
-            if tid is not None:
-                cache[key] = int(tid)
-                return cache[key]
-        except json.JSONDecodeError:
-            pass
-    # Tag existiert evtl. schon — Cache neu laden
-    cache.clear()
-    cache.update(_list_system_tags(cfg))
-    if key in cache:
-        return cache[key]
+    if status == 201:
+        loc = resp.headers.get("Content-Location") or resp.headers.get("content-location") or ""
+        m = re.search(r"/systemtags/(\d+)", loc)
+        if m:
+            cache[key] = int(m.group(1))
+            return cache[key]
+    if status in (201, 409):
+        cache.clear()
+        cache.update(_list_system_tags(cfg))
+        if key in cache:
+            return cache[key]
     raise RuntimeError(f"Systemtag anlegen/fehlend: {key} (HTTP {status})")
 
 
