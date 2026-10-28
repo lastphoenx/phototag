@@ -95,11 +95,18 @@ def _urlopen(req: urllib.request.Request, timeout: int = 120):
 
 def _http_error_hint(status: int, raw: bytes) -> str:
     text = raw.decode("utf-8", errors="replace").strip()
-    text = re.sub(r"\s+", " ", text)[:240]
-    extra = f" — {text}" if text else ""
-    if status == 400 and "untrusted" in text.lower():
-        return f"HTTP {status} (trusted_domains?){extra}"
-    return f"HTTP {status}{extra}"
+    lower = text.lower()
+    if text.startswith("<!") or "<html" in lower[:200]:
+        return (
+            f"HTTP {status} — Nextcloud lieferte HTML statt WebDAV "
+            "(Host in trusted_domains? PHOTOTAG_NC_URL = erreichbarer NC-Host; "
+            "App-Passwort/Basic-Auth korrekt?)"
+        )
+    if status == 400 and "untrusted" in lower:
+        return f"HTTP {status} — Host nicht in Nextcloud trusted_domains"
+    text = re.sub(r"\s+", " ", text)[:120]
+    text = re.sub(r'data-requesttoken="[^"]*"', 'data-requesttoken="***"', text, flags=re.I)
+    return f"HTTP {status} — {text}" if text else f"HTTP {status}"
 
 
 def _request(
