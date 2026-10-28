@@ -17,21 +17,22 @@ Eigene Taxonomie nur lokal oder per `PHOTOTAG_CATEGORIES`.
 
 ## Installation (Server)
 
-Release-Pin per **Git-Tag** (empfohlen) oder Commit-SHA:
+Release-Pin optional per **Commit-SHA** oder Git-Tag; Standard auf dem Server: **`main`**:
 
 ```bash
 apt install -y wget unzip rsync python3-venv ffmpeg
 install -d /opt/phototag
-export PHOTOTAG_REF=v0.3.0
-# Privates GitHub-Repo:
-# export GITHUB_TOKEN=<read-only PAT>
 bash /opt/phototag/scripts/update-from-github.sh
 cp categories.example.txt categories.txt && nano categories.txt
 ```
 
-Alternativ nach `git clone`: `export PHOTOTAG_REF="$(git rev-parse HEAD)"`.
+Update (zieht **main** von GitHub, lässt `categories.txt` / `.env` / DB):
 
-**Supply chain:** Updates nur mit gesetztem `PHOTOTAG_REF` / `PHOTOTAG_TAG` (Standard im Skript: `v0.3.0`). Unpinned `main` ist blockiert.
+```bash
+./scripts/update-from-github.sh
+```
+
+Optional fixieren: `PHOTOTAG_REF=<commit-sha>` oder `PHOTOTAG_REF=v0.3.7`.
 
 ## Entwicklung
 

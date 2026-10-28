@@ -3,19 +3,13 @@
 # Keeps local categories.txt, .env, *.db, .venv on the install dir.
 #
 # Private repo: export GITHUB_TOKEN=<read-only PAT> (nicht committen).
-# Pin: PHOTOTAG_REF=v0.3.0 (Git-Tag) oder volle Commit-SHA.
+# Standard: main. Optional Pin: PHOTOTAG_REF=<commit-sha> oder PHOTOTAG_REF=v0.3.7 (Tag).
 set -euo pipefail
 
 INSTALL_DIR="${PHOTOTAG_INSTALL_DIR:-/opt/phototag}"
 GITHUB_REPO="${PHOTOTAG_GITHUB_REPO:-lastphoenx/phototag}"
 
-REF="${PHOTOTAG_REF:-${PHOTOTAG_TAG:-v0.3.0}}"
-
-if [[ "$REF" == main || "$REF" == master ]] && [[ -z "${PHOTOTAG_ALLOW_MAIN:-}" ]]; then
-  echo "phototag: Ungepinntes REF=$REF abgelehnt (pip install -e führt Repo-Code aus)." >&2
-  echo "Setze PHOTOTAG_REF=v0.3.0 (Tag), <commit-sha>, oder einmalig PHOTOTAG_ALLOW_MAIN=1." >&2
-  exit 1
-fi
+REF="${PHOTOTAG_REF:-${PHOTOTAG_TAG:-main}}"
 
 if [[ "$REF" == main || "$REF" == master ]]; then
   ARCHIVE="https://github.com/${GITHUB_REPO}/archive/refs/heads/${REF}.zip"
@@ -56,7 +50,7 @@ download() {
 
 if ! download; then
   echo "phototag: Download fehlgeschlagen ($ARCHIVE)." >&2
-  echo "Häufig: REF/Tag existiert nicht (nur v0.3.0?) — gh release list / git tag auf GitHub prüfen." >&2
+  echo "Häufig: REF/Tag existiert nicht — Branch main oder git tag auf GitHub prüfen." >&2
   echo "Oder: privates Repo → GITHUB_TOKEN; oder git clone + git pull statt ZIP." >&2
   exit 1
 fi
