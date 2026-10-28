@@ -3,13 +3,21 @@
 # Keeps local categories.txt, .env, *.db, .venv on the install dir.
 #
 # Private repo: export GITHUB_TOKEN=<read-only PAT> (nicht committen).
-# Standard: main. Optional Pin: PHOTOTAG_REF=<commit-sha> oder PHOTOTAG_REF=v0.3.7 (Tag).
+# Standard: main. Optional Pin nur fuer dieses Skript: PHOTOTAG_UPDATE_REF=<sha|tag>
+# (PHOTOTAG_REF/PHOTOTAG_TAG in phototag.env werden absichtlich ignoriert — sonst pinnt source phototag.env Updates.)
 set -euo pipefail
 
 INSTALL_DIR="${PHOTOTAG_INSTALL_DIR:-/opt/phototag}"
 GITHUB_REPO="${PHOTOTAG_GITHUB_REPO:-lastphoenx/phototag}"
 
-REF="${PHOTOTAG_REF:-${PHOTOTAG_TAG:-main}}"
+REF="${PHOTOTAG_UPDATE_REF:-main}"
+
+if [[ -f "$INSTALL_DIR/phototag.env" ]] && grep -qE '^[[:space:]]*PHOTOTAG_(REF|TAG)=' "$INSTALL_DIR/phototag.env" 2>/dev/null; then
+  echo "Hinweis: phototag.env enthaelt PHOTOTAG_REF/PHOTOTAG_TAG — fuer Updates ignoriert; Zeilen loeschen (Pin: PHOTOTAG_UPDATE_REF)." >&2
+fi
+if [[ -n "${PHOTOTAG_REF:-}" || -n "${PHOTOTAG_TAG:-}" ]]; then
+  echo "Hinweis: PHOTOTAG_REF/PHOTOTAG_TAG in der Shell — fuer Updates ignoriert (default main, Pin: PHOTOTAG_UPDATE_REF)." >&2
+fi
 
 if [[ "$REF" == main || "$REF" == master ]]; then
   ARCHIVE="https://github.com/${GITHUB_REPO}/archive/refs/heads/${REF}.zip"
@@ -89,5 +97,5 @@ fi
 .venv/bin/pip install -q -e .
 echo "phototag aktualisiert in $INSTALL_DIR (REF=$REF). categories.txt unverändert gelassen."
 if [[ "$REF" != main && "$REF" != master ]] && [[ ! "$REF" =~ ^[0-9a-f]{7,40}$ ]]; then
-  echo "Hinweis: Tag-Pin REF=$REF — fuer main: PHOTOTAG_REF und PHOTOTAG_TAG in phototag.env entfernen, oder scripts/bootstrap-update-from-main.sh" >&2
+  echo "Hinweis: Tag-Pin REF=$REF — fuer main: PHOTOTAG_UPDATE_REF leer lassen oder scripts/bootstrap-update-from-main.sh" >&2
 fi

@@ -32,7 +32,7 @@ Update (zieht **main** von GitHub, lässt `categories.txt` / `.env` / DB):
 ./scripts/update-from-github.sh
 ```
 
-Optional fixieren: `PHOTOTAG_REF=<commit-sha>` oder `PHOTOTAG_REF=v0.3.7`.
+Optional fixieren: `PHOTOTAG_UPDATE_REF=<commit-sha>` oder Tag (nur fuer `update-from-github.sh`; nicht `PHOTOTAG_REF` in `phototag.env` — das wuerde sonst jedes Update pinnen, wenn du `source phototag.env` nutzt).
 
 ## Entwicklung
 

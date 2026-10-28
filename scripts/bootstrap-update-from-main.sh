@@ -20,6 +20,6 @@ else
 fi
 chmod +x "${INSTALL_DIR}/scripts/update-from-github.sh"
 
-unset PHOTOTAG_REF PHOTOTAG_TAG
+unset PHOTOTAG_REF PHOTOTAG_TAG PHOTOTAG_UPDATE_REF
 export PHOTOTAG_INSTALL_DIR="$INSTALL_DIR"
 exec "${INSTALL_DIR}/scripts/update-from-github.sh"
