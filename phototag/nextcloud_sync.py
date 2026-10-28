@@ -11,6 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from pathlib import Path
 from dataclasses import dataclass
 
 from phototag.config import (
@@ -74,7 +75,13 @@ def _ssl_context() -> ssl.SSLContext:
     ctx = ssl.create_default_context()
     ca = nc_tls_ca_file()
     if ca:
-        ctx.load_verify_locations(cafile=ca)
+        cap = Path(ca)
+        if not cap.is_file():
+            raise RuntimeError(
+                f"PHOTOTAG_NC_CA_FILE nicht gefunden: {ca} "
+                "(Datei anlegen, Zeile entfernen, oder PHOTOTAG_NC_TLS_INSECURE=1 nur im VLAN)"
+            )
+        ctx.load_verify_locations(cafile=str(cap))
     if nc_tls_insecure():
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
