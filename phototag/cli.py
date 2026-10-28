@@ -301,31 +301,82 @@ def build_prompt(categories: list[tuple[str, str]], is_video: bool) -> str:
     )
 
 
+def _message_text(message: dict) -> str:
+    """OpenAI-compatible message; some backends use list content or empty content."""
+    content = message.get("content")
+    if isinstance(content, str) and content.strip():
+        return content
+    if isinstance(content, list):
+        chunks: list[str] = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                chunks.append(str(part.get("text") or ""))
+        joined = "".join(chunks).strip()
+        if joined:
+            return joined
+    for key in ("reasoning_content", "reasoning"):
+        val = message.get(key)
+        if isinstance(val, str) and val.strip():
+            return val
+    return ""
+
+
+def parse_reply(text: str) -> dict:
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
+    text = re.sub(r"```json\s*", "", text, flags=re.I)
+    text = re.sub(r"```", "", text)
+    m = re.search(r"\{.*", text, flags=re.S)
+    if not m:
+        raise ValueError(f"keine JSON-Antwort: {text[:120]!r}")
+    blob = m.group(0).strip()
+    try:
+        return json.loads(blob)
+    except json.JSONDecodeError:
+        for suffix in ('"}', '"]}', ']}', '}'):
+            try:
+                return json.loads(blob + suffix)
+            except json.JSONDecodeError:
+                continue
+        raise ValueError(f"keine JSON-Antwort: {text[:120]!r}") from None
+
+
 def ask_model(frames: list[bytes], categories: list[tuple[str, str]], is_video: bool) -> dict:
     content = [{"type": "text", "text": build_prompt(categories, is_video)}]
     for raw in frames:
         b64 = base64.b64encode(raw).decode("ascii")
         content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
     payload = {
-        "model": model_name(), "temperature": 0.1, "max_tokens": 1024,
-        "chat_template_kwargs": {"enable_thinking": False},  # Qwen-Denkmodus aus; andere Server ignorieren es
+        "model": model_name(),
+        "temperature": 0.1,
+        "max_tokens": 1024,
+        "chat_template_kwargs": {"enable_thinking": False},
         "messages": [{"role": "user", "content": content}],
     }
-    req = urllib.request.Request(
-        f"{api_url()}/chat/completions", data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=600) as resp:
-        data = json.load(resp)
-    return parse_reply(data["choices"][0]["message"]["content"] or "")
-
-
-def parse_reply(text: str) -> dict:
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
-    m = re.search(r"\{.*\}", text, flags=re.S)
-    if not m:
-        raise ValueError(f"keine JSON-Antwort: {text[:120]!r}")
-    return json.loads(m.group(0))
+    body = json.dumps(payload).encode()
+    url = f"{api_url()}/chat/completions"
+    last_err: Exception | None = None
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(
+                url, data=body, headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=600) as resp:
+                data = json.load(resp)
+            choice = data["choices"][0]
+            text = _message_text(choice.get("message") or {})
+            if not text.strip():
+                finish = choice.get("finish_reason")
+                raise ValueError(f"leere Modell-Antwort (finish_reason={finish!r})")
+            return parse_reply(text)
+        except (urllib.error.URLError, urllib.error.HTTPError):
+            raise
+        except (ValueError, json.JSONDecodeError, KeyError, IndexError) as exc:
+            last_err = exc
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+                continue
+    assert last_err is not None
+    raise last_err
 
 
 def cmd_tag(args) -> None:
