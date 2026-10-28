@@ -70,6 +70,14 @@ def nc_app_token() -> str:
     return ""
 
 
+def nc_tls_insecure() -> bool:
+    return os.getenv("PHOTOTAG_NC_TLS_INSECURE", "").strip().lower() in ("1", "true", "yes")
+
+
+def nc_tls_ca_file() -> str:
+    return os.getenv("PHOTOTAG_NC_CA_FILE", "").strip()
+
+
 def categories_path() -> Path:
     """PHOTOTAG_CATEGORIES, else ./categories.txt, else packaged categories.example.txt."""
     global _example_warned

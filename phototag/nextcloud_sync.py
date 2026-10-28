@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import ssl
 import sqlite3
 import time
 import urllib.error
@@ -12,7 +13,14 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
-from phototag.config import nc_app_token, nc_dav_prefix, nc_url, nc_user
+from phototag.config import (
+    nc_app_token,
+    nc_dav_prefix,
+    nc_tls_ca_file,
+    nc_tls_insecure,
+    nc_url,
+    nc_user,
+)
 
 NS = {
     "d": "DAV:",
@@ -62,6 +70,22 @@ def _auth_header(cfg: NcConfig) -> str:
     return f"Basic {token}"
 
 
+def _ssl_context() -> ssl.SSLContext:
+    ctx = ssl.create_default_context()
+    ca = nc_tls_ca_file()
+    if ca:
+        ctx.load_verify_locations(cafile=ca)
+    if nc_tls_insecure():
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
+def _urlopen(req: urllib.request.Request, timeout: int = 120):
+    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=_ssl_context()))
+    return opener.open(req, timeout=timeout)
+
+
 def _request(
     cfg: NcConfig,
     method: str,
@@ -78,7 +102,7 @@ def _request(
         hdrs.update(headers)
     req = urllib.request.Request(url, data=data, method=method, headers=hdrs)
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with _urlopen(req, timeout=120) as resp:
             return resp.status, resp.read()
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read()
