@@ -1,0 +1,10 @@
+[Unit]
+Description=phototag night run 00:00–07:00
+
+[Timer]
+OnCalendar=*-*-* 00:00:00
+Persistent=true
+Unit=phototag-night.service
+
+[Install]
+WantedBy=timers.target

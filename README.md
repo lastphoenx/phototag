@@ -35,6 +35,14 @@ Update (zieht **main** von GitHub, lässt `categories.txt` / `phototag.env` / DB
 
 Optional fixieren: `PHOTOTAG_UPDATE_REF=<commit-sha>` oder Tag (nur fuer `update-from-github.sh`; nicht `PHOTOTAG_REF` in `phototag.env` — das wuerde sonst jedes Update pinnen, wenn du `source phototag.env` nutzt).
 
+### Nacht-Lauf (00:00–07:00)
+
+`scripts/night-tag-loop.sh` scannt `PHOTOTAG_SCAN_ROOT` wiederholt und taggt in kleinen Batches (`PHOTOTAG_NIGHT_BATCH`, Pause `PHOTOTAG_NIGHT_SLEEP`). Stoppt ab `PHOTOTAG_NIGHT_END_HOUR` (Default 7). Systemd-Vorlage: `scripts/systemd/phototag-night.{service,timer}` — `PHOTOTAG_SCAN_ROOT` an euren OF-Mount anpassen.
+
+**Ollama (gmk-evo):** nachts nur phototag → ein Modell reicht; tagsüber `OLLAMA_MAX_LOADED_MODELS=2` falls ein zweites Modell parallel soll. Kein Dauer-Parallelismus in phototag (serielles `tag`).
+
+**Tag-Nachbearbeitung:** `PHOTOTAG_TAG_SANITIZE=1` (Default) — widersprüchliche Tags bereinigen; heikle Kombinationen → Status `review` (siehe `phototag review`).
+
 ## Entwicklung
 
 ```bash

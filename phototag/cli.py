@@ -59,6 +59,7 @@ from phototag.config import (
     model_name,
     prompt_lang,
     reasoning_effort,
+    tag_sanitize_enabled,
     thumb_quality,
     thumb_side,
     video_frames,
@@ -328,6 +329,7 @@ def build_prompt(categories: list[tuple[str, str]], is_video: bool) -> str:
         "- observations: optional kurze Beobachtungen zu Details ohne passenden Tag "
         "(Mimik, Gegenstände, Pose-Details), max. 8 Einträge.\n"
         "- caption: ein sachlicher Satz auf Deutsch (max. 160 Zeichen).\n"
+        "- bottomless: nur wenn Oberteil an und unterhalb Taille frei; nicht zusammen mit nude oder topless.\n"
         "Erfinde keine Tag-IDs ausserhalb der Liste; Extras gehören in observations."
     )
 
@@ -442,7 +444,54 @@ def _apply_model_output(out: dict, allowed: set[str]) -> tuple[list[str], list[s
     return tags, dropped, caption, model_raw
 
 
-def _print_tag_extras(out: dict, caption: str, dropped: list[str], verbose: bool) -> None:
+_BODY_EXPLICIT = frozenset({"breasts", "nipples", "genitals_visible"})
+
+
+def sanitize_tags(tags: list[str], allowed: set[str]) -> tuple[list[str], list[str]]:
+    """Widersprüche bereinigen; flags lösen review aus (auch bei age_status=yes)."""
+    if not tag_sanitize_enabled():
+        return tags, []
+    t = set(tags) & allowed
+    flags: list[str] = []
+
+    if "nude" in t:
+        t.discard("topless")
+        t.discard("clothed")
+        t.discard("lingerie")
+        t.discard("bottomless")
+    else:
+        if "topless" in t and "clothed" in t:
+            t.discard("topless")
+            if "bottomless" in allowed and ("genitals_visible" in t or "bottomless" in tags):
+                t.add("bottomless")
+            flags.append("topless_clothed")
+        if "topless" in t and "lingerie" in t:
+            t.discard("topless")
+            if "genitals_visible" in t and "bottomless" in allowed:
+                t.add("bottomless")
+            flags.append("topless_lingerie")
+        if "clothed" in t and "lingerie" in t:
+            t.discard("clothed")
+            flags.append("clothed_lingerie")
+
+    if "nude" in t and not (t & _BODY_EXPLICIT):
+        flags.append("nude_without_body_tags")
+
+    if "outdoor" in t and "indoor" in t:
+        flags.append("outdoor_and_indoor")
+        if any(x.startswith("location_") for x in t):
+            t.discard("outdoor")
+            t.discard("indoor")
+
+    if "rear_view_naked" in t and "lingerie" in t and "nude" not in t:
+        t.discard("rear_view_naked")
+        flags.append("rear_naked_lingerie")
+
+    cleaned = sorted(t)[: max_tags()]
+    return cleaned, flags
+
+
+def _print_tag_extras(out: dict, caption: str, dropped: list[str], verbose: bool, sanitize_flags: list[str] | None = None) -> None:
     if not verbose:
         return
     obs = out.get("observations") or []
@@ -457,6 +506,8 @@ def _print_tag_extras(out: dict, caption: str, dropped: list[str], verbose: bool
         print(f"         observations: {'; '.join(obs)}")
     if dropped:
         print(f"         verworfen (nicht in Liste): {' '.join(dropped)}")
+    if sanitize_flags:
+        print(f"         sanitize → review: {', '.join(sanitize_flags)}")
     raw_preview = json.dumps(out, ensure_ascii=False)
     if len(raw_preview) > 600:
         raw_preview = raw_preview[:600] + "…"
@@ -486,27 +537,33 @@ def cmd_tag(args) -> None:
             out = ask_model(media["frames"], categories, is_video)
             age_status = str(out.get("age_status", "unsure")).lower()
             tags, dropped, caption, model_raw = _apply_model_output(out, allowed)
+            tags, sanitize_flags = sanitize_tags(tags, allowed)
         except (OSError, urllib.error.URLError, ValueError, KeyError, json.JSONDecodeError,
                 subprocess.TimeoutExpired) as exc:
             con.execute("UPDATE images SET status='error', error=? WHERE id=?", (str(exc)[:300], row["id"]))
             con.commit()
             print(f"[{i}/{len(rows)}] FEHLER {row['path']}: {exc}")
             continue
-        status = "tagged" if age_status == "yes" else "review"
+        status = "tagged" if age_status == "yes" and not sanitize_flags else "review"
+        review_note = None
+        if sanitize_flags:
+            review_note = "sanitize:" + ",".join(sanitize_flags)
+        elif age_status != "yes":
+            review_note = None
         con.execute("DELETE FROM tags WHERE image_id=?", (row["id"],))
         if status == "tagged":
             con.executemany("INSERT INTO tags VALUES(?,?)", [(row["id"], t) for t in tags])
         con.execute(
             "UPDATE images SET status=?,age_status=?,caption=?,model_raw=?,width=?,height=?,duration=?,frames=?,thumb=?,"
-            "model=?,tagged_at=?,error=NULL WHERE id=?",
+            "model=?,tagged_at=?,error=? WHERE id=?",
             (status, age_status, caption if status == "tagged" else None, model_raw, media["width"], media["height"],
-             media["duration"], len(media["frames"]), media["thumb"], model_name(), time.time(), row["id"]),
+             media["duration"], len(media["frames"]), media["thumb"], model_name(), time.time(), review_note, row["id"]),
         )
         index_image(con, row["id"])
         con.commit()
         extra = f" [{len(media['frames'])} Frames]" if is_video else ""
         print(f"[{i}/{len(rows)}] {status:6} {row['path']}{extra}  {' '.join(tags)}  ({time.time()-t0:.1f}s)")
-        _print_tag_extras(out, caption if status == "tagged" else str(out.get("caption", ""))[:160], dropped, verbose)
+        _print_tag_extras(out, caption if status == "tagged" else str(out.get("caption", ""))[:160], dropped, verbose, sanitize_flags)
 
 
 # ---------------------------------------------------------------- Suche
@@ -584,8 +641,11 @@ def cmd_stats(_args) -> None:
 
 def cmd_review(_args) -> None:
     con = connect()
-    for r in con.execute("SELECT path,age_status,kind FROM images WHERE status='review' ORDER BY path"):
-        print(f"{r['age_status'] or '?':7} {r['kind']:5} {r['path']}")
+    for r in con.execute(
+        "SELECT path,age_status,kind,error FROM images WHERE status='review' ORDER BY path"
+    ):
+        extra = f"  [{r['error']}]" if r["error"] else ""
+        print(f"{r['age_status'] or '?':7} {r['kind']:5} {r['path']}{extra}")
 
 
 def cmd_reindex(_args) -> None:

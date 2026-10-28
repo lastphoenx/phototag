@@ -49,6 +49,10 @@ def max_completion_tokens() -> int:
     return max(256, int(os.getenv("PHOTOTAG_MAX_TOKENS", "2048")))
 
 
+def tag_sanitize_enabled() -> bool:
+    return os.getenv("PHOTOTAG_TAG_SANITIZE", "1").strip().lower() not in ("0", "false", "no")
+
+
 def prompt_lang() -> str:
     """Prompt-Sprache: de (Standard) oder en — nur Anweisungstext, Kategorie-Hinweise bleiben wie in categories.txt."""
     lang = os.getenv("PHOTOTAG_PROMPT_LANG", "de").strip().lower()

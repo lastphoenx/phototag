@@ -315,3 +315,22 @@ def test_parse_reply_salvages_truncated_json():
     assert out["age_status"] == "yes"
     assert "face_visible" in out["tags"]
     assert "pose_sitting" in out["tags"]
+
+
+def test_sanitize_tags_conflicts(monkeypatch: pytest.MonkeyPatch):
+    from phototag.cli import sanitize_tags
+
+    monkeypatch.setenv("PHOTOTAG_TAG_SANITIZE", "1")
+    allowed = {"nude", "clothed", "topless", "breasts", "bottomless", "outdoor", "indoor", "location_balcony"}
+    tags, flags = sanitize_tags(["nude", "clothed", "topless", "breasts"], allowed)
+    assert "clothed" not in tags
+    assert "topless" not in tags
+    assert "nude" in tags
+    tags2, flags2 = sanitize_tags(["nude", "face_visible"], {"nude", "face_visible"})
+    assert "nude_without_body_tags" in flags2
+    tags3, flags3 = sanitize_tags(
+        ["outdoor", "indoor", "location_balcony"], {"outdoor", "indoor", "location_balcony"}
+    )
+    assert "outdoor_and_indoor" in flags3
+    assert "outdoor" not in tags3
+    assert "location_balcony" in tags3

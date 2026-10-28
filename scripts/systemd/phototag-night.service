@@ -1,0 +1,20 @@
+[Unit]
+Description=phototag night scan+tag loop until morning
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=7h
+Environment=PHOTOTAG_INSTALL_DIR=/opt/phototag
+Environment=PHOTOTAG_ENV=/opt/phototag/phototag.env
+Environment=PHOTOTAG_SCAN_ROOT=/mnt/nextcloud-of
+Environment=PHOTOTAG_NIGHT_BATCH=15
+Environment=PHOTOTAG_NIGHT_SLEEP=60
+Environment=PHOTOTAG_NIGHT_END_HOUR=7
+ExecStart=/opt/phototag/scripts/night-tag-loop.sh
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target
