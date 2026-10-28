@@ -23,6 +23,8 @@ Konfiguration per Umgebungsvariablen:
   PHOTOTAG_VIDEO_FRAMES  (default 6, erlaubt 5-8) Frames pro Video
   PHOTOTAG_VIDEO_SIDE    (default 768)   Kantenlänge pro Video-Frame
   PHOTOTAG_MAX_TAGS      (default 12)    max. Tags pro Datei
+  PHOTOTAG_PROMPT_LANG   (de|en, default de)  Anweisungssprache an das Modell
+  PHOTOTAG_VERBOSE       (1/true) oder phototag tag -v  zeigt caption, observations, raw JSON
   PHOTOTAG_THUMB_SIDE / PHOTOTAG_THUMB_QUALITY (default 320 / 70)
 Videos brauchen ffmpeg + ffprobe.
 """
@@ -49,11 +51,13 @@ from PIL import Image, ImageOps
 from phototag.config import (
     api_url,
     categories_path,
+    cli_verbose,
     db_path,
     max_side,
     max_tags,
     max_completion_tokens,
     model_name,
+    prompt_lang,
     reasoning_effort,
     thumb_quality,
     thumb_side,
@@ -97,6 +101,9 @@ def connect() -> sqlite3.Connection:
     con.execute("PRAGMA foreign_keys=ON")
     con.executescript(SCHEMA)
     con.execute("CREATE INDEX IF NOT EXISTS images_folder ON images(folder)")
+    cols = {r[1] for r in con.execute("PRAGMA table_info(images)")}
+    if "model_raw" not in cols:
+        con.execute("ALTER TABLE images ADD COLUMN model_raw TEXT")
     fts_cols = "path, folder, caption, tags"
     con.execute(
         f"CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5({fts_cols}, "
@@ -284,6 +291,26 @@ def encode_video(path: Path) -> dict:
 
 def build_prompt(categories: list[tuple[str, str]], is_video: bool) -> str:
     lines = "\n".join(f"- {t}: {h}" if h else f"- {t}" for t, h in categories)
+    lang = prompt_lang()
+    if lang == "en":
+        where = (
+            "The images are frames of ONE video in chronological order. Apply each tag that "
+            "matches at least one frame."
+            if is_video else "You see a single photo."
+        )
+        return (
+            "You tag a private photo archive. " + where + "\n"
+            "Reply ONLY with JSON, no text before or after:\n"
+            '{"age_status": "yes|no|unsure", "tags": ["..."], "observations": ["..."], "caption": "..."}\n'
+            "- age_status: Are all visible people clearly adults? If unsure use \"unsure\" or \"no\".\n"
+            f"- tags: apply ALL matching tags (multiple encouraged, at most {max_tags()}) and ONLY from this list:\n"
+            f"{lines}\n"
+            "- If the list includes location, furniture, or pose tags, add them when clearly visible.\n"
+            "- observations: optional short phrases (German or English) for visible details with no matching "
+            "tag (expressions, props, small details), max 8 items.\n"
+            "- caption: one factual sentence in German (max 160 characters).\n"
+            "Do not invent tag ids outside the list; put extras in observations."
+        )
     where = (
         "Die Bilder sind Frames EINES Videos in zeitlicher Reihenfolge. Vergib jeden Tag, der in "
         "mindestens einem Frame zutrifft."
@@ -292,14 +319,16 @@ def build_prompt(categories: list[tuple[str, str]], is_video: bool) -> str:
     return (
         "Du verschlagwortest eigenes Archivmaterial. " + where + "\n"
         "Antworte AUSSCHLIESSLICH mit JSON, ohne Text davor oder danach:\n"
-        '{"age_status": "yes|no|unsure", "tags": ["..."], "caption": "..."}\n'
+        '{"age_status": "yes|no|unsure", "tags": ["..."], "observations": ["..."], "caption": "..."}\n'
         "- age_status: Sind alle sichtbaren Personen eindeutig volljährig? Bei Zweifel \"unsure\" oder \"no\".\n"
         f"- tags: vergib ALLE zutreffenden Tags (mehrere sind erwünscht, höchstens {max_tags()}) und NUR aus dieser Liste:\n"
         f"{lines}\n"
         "- Enthält die Liste Tags zu Ort, Möbeln oder Pose, vergib diese zusätzlich zu den "
         "Haupt-Tags, sobald sie klar erkennbar sind.\n"
+        "- observations: optional kurze Beobachtungen zu Details ohne passenden Tag "
+        "(Mimik, Gegenstände, Pose-Details), max. 8 Einträge.\n"
         "- caption: ein sachlicher Satz auf Deutsch (max. 160 Zeichen).\n"
-        "Erfinde keine Tags ausserhalb der Liste."
+        "Erfinde keine Tag-IDs ausserhalb der Liste; Extras gehören in observations."
     )
 
 
@@ -404,6 +433,36 @@ def ask_model(frames: list[bytes], categories: list[tuple[str, str]], is_video: 
     raise last_err
 
 
+def _apply_model_output(out: dict, allowed: set[str]) -> tuple[list[str], list[str], str, str]:
+    raw_tag_list = [str(t).strip().lower() for t in out.get("tags", []) if str(t).strip()]
+    tags = sorted({t for t in raw_tag_list if t in allowed})[: max_tags()]
+    dropped = sorted({t for t in raw_tag_list if t not in allowed})
+    caption = str(out.get("caption", ""))[:160]
+    model_raw = json.dumps(out, ensure_ascii=False)[:16000]
+    return tags, dropped, caption, model_raw
+
+
+def _print_tag_extras(out: dict, caption: str, dropped: list[str], verbose: bool) -> None:
+    if not verbose:
+        return
+    obs = out.get("observations") or []
+    if isinstance(obs, str):
+        obs = [obs]
+    elif not isinstance(obs, list):
+        obs = []
+    obs = [str(o).strip() for o in obs if str(o).strip()][:8]
+    if caption:
+        print(f"         caption: {caption}")
+    if obs:
+        print(f"         observations: {'; '.join(obs)}")
+    if dropped:
+        print(f"         verworfen (nicht in Liste): {' '.join(dropped)}")
+    raw_preview = json.dumps(out, ensure_ascii=False)
+    if len(raw_preview) > 600:
+        raw_preview = raw_preview[:600] + "…"
+    print(f"         raw: {raw_preview}")
+
+
 def cmd_tag(args) -> None:
     categories = load_categories()
     allowed = {t for t, _ in categories}
@@ -416,7 +475,8 @@ def cmd_tag(args) -> None:
     rows = con.execute(
         f"SELECT * FROM images WHERE {' AND '.join(where)} ORDER BY id LIMIT ?", (*params, args.limit or -1)
     ).fetchall()
-    print(f"{len(rows)} Dateien zu verarbeiten (Modell {model_name()} @ {api_url()})")
+    print(f"{len(rows)} Dateien zu verarbeiten (Modell {model_name()} @ {api_url()}, prompt={prompt_lang()})")
+    verbose = bool(getattr(args, "verbose", False) or cli_verbose())
     for i, row in enumerate(rows, 1):
         path = Path(row["root"]) / row["path"]
         is_video = row["kind"] == "video"
@@ -425,8 +485,7 @@ def cmd_tag(args) -> None:
             media = encode_video(path) if is_video else encode_image(path)
             out = ask_model(media["frames"], categories, is_video)
             age_status = str(out.get("age_status", "unsure")).lower()
-            tags = sorted({str(t).strip().lower() for t in out.get("tags", [])} & allowed)[: max_tags()]
-            caption = str(out.get("caption", ""))[:160]
+            tags, dropped, caption, model_raw = _apply_model_output(out, allowed)
         except (OSError, urllib.error.URLError, ValueError, KeyError, json.JSONDecodeError,
                 subprocess.TimeoutExpired) as exc:
             con.execute("UPDATE images SET status='error', error=? WHERE id=?", (str(exc)[:300], row["id"]))
@@ -438,15 +497,16 @@ def cmd_tag(args) -> None:
         if status == "tagged":
             con.executemany("INSERT INTO tags VALUES(?,?)", [(row["id"], t) for t in tags])
         con.execute(
-            "UPDATE images SET status=?,age_status=?,caption=?,width=?,height=?,duration=?,frames=?,thumb=?,"
+            "UPDATE images SET status=?,age_status=?,caption=?,model_raw=?,width=?,height=?,duration=?,frames=?,thumb=?,"
             "model=?,tagged_at=?,error=NULL WHERE id=?",
-            (status, age_status, caption if status == "tagged" else None, media["width"], media["height"],
+            (status, age_status, caption if status == "tagged" else None, model_raw, media["width"], media["height"],
              media["duration"], len(media["frames"]), media["thumb"], model_name(), time.time(), row["id"]),
         )
         index_image(con, row["id"])
         con.commit()
         extra = f" [{len(media['frames'])} Frames]" if is_video else ""
         print(f"[{i}/{len(rows)}] {status:6} {row['path']}{extra}  {' '.join(tags)}  ({time.time()-t0:.1f}s)")
+        _print_tag_extras(out, caption if status == "tagged" else str(out.get("caption", ""))[:160], dropped, verbose)
 
 
 # ---------------------------------------------------------------- Suche
@@ -584,7 +644,9 @@ def main() -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("scan"); s.add_argument("root"); s.set_defaults(fn=cmd_scan)
     t = sub.add_parser("tag"); t.add_argument("--limit", type=int, default=0); t.add_argument("--retag", action="store_true")
-    t.add_argument("--kind", choices=["image", "video"]); t.set_defaults(fn=cmd_tag)
+    t.add_argument("--kind", choices=["image", "video"])
+    t.add_argument("-v", "--verbose", action="store_true", help="caption, observations, verworfene Tags, raw JSON")
+    t.set_defaults(fn=cmd_tag)
     q = sub.add_parser("search"); q.add_argument("query", nargs="?", default="")
     q.add_argument("--any", action="store_true"); q.add_argument("--fuzzy", action="store_true")
     q.add_argument("--tag", action="append"); q.add_argument("--folder", default=""); q.add_argument("--kind", choices=["image", "video"])

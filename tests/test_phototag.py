@@ -109,6 +109,7 @@ def test_scan_tag_search_mock_api(tmp_path: Path, env_db: Path, monkeypatch: pyt
         limit = 10
         retag = False
         kind = "image"
+        verbose = False
 
     cmd_tag(TagArgs())
 
@@ -131,6 +132,8 @@ def test_scan_tag_search_mock_api(tmp_path: Path, env_db: Path, monkeypatch: pyt
     ).fetchone()
     assert row["status"] == "tagged"
     assert row["folder"] == "album"
+    raw = con.execute("SELECT model_raw FROM images WHERE path=?", ("album/beach.jpg",)).fetchone()
+    assert raw["model_raw"] and "outdoor" in raw["model_raw"]
     tags = {r["tag"] for r in con.execute("SELECT tag FROM tags").fetchall()}
     assert tags == {"outdoor", "portrait"}
     server.shutdown()

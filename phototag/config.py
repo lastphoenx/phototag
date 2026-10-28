@@ -49,6 +49,16 @@ def max_completion_tokens() -> int:
     return max(256, int(os.getenv("PHOTOTAG_MAX_TOKENS", "2048")))
 
 
+def prompt_lang() -> str:
+    """Prompt-Sprache: de (Standard) oder en — nur Anweisungstext, Kategorie-Hinweise bleiben wie in categories.txt."""
+    lang = os.getenv("PHOTOTAG_PROMPT_LANG", "de").strip().lower()
+    return lang if lang in ("de", "en") else "de"
+
+
+def cli_verbose() -> bool:
+    return os.getenv("PHOTOTAG_VERBOSE", "").strip().lower() in ("1", "true", "yes")
+
+
 def thumb_side() -> int:
     return int(os.getenv("PHOTOTAG_THUMB_SIDE", "320"))
 
