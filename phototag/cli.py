@@ -294,6 +294,8 @@ def build_prompt(categories: list[tuple[str, str]], is_video: bool) -> str:
         "- age_status: Sind alle sichtbaren Personen eindeutig volljährig? Bei Zweifel \"unsure\" oder \"no\".\n"
         f"- tags: vergib ALLE zutreffenden Tags (mehrere sind erwünscht, höchstens {max_tags()}) und NUR aus dieser Liste:\n"
         f"{lines}\n"
+        "- Wenn location_*, furniture_* oder pose_* in der Liste stehen: passende Ort-, Möbel- und Pose-Tags "
+        "mitvergeben (nicht nur nude/breasts).\n"
         "- caption: ein sachlicher Satz auf Deutsch (max. 160 Zeichen).\n"
         "Erfinde keine Tags ausserhalb der Liste."
     )
@@ -305,7 +307,7 @@ def ask_model(frames: list[bytes], categories: list[tuple[str, str]], is_video: 
         b64 = base64.b64encode(raw).decode("ascii")
         content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
     payload = {
-        "model": model_name(), "temperature": 0.1, "max_tokens": 500,
+        "model": model_name(), "temperature": 0.1, "max_tokens": 1024,
         "chat_template_kwargs": {"enable_thinking": False},  # Qwen-Denkmodus aus; andere Server ignorieren es
         "messages": [{"role": "user", "content": content}],
     }
