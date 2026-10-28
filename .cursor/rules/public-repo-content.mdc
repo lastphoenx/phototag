@@ -16,8 +16,7 @@ phototag on GitHub is a **generic** local vision tagging tool.
 
 ## Sanitize / taxonomy
 
-- Code: generic rules only (e.g. `outdoor`/`indoor`) + JSON loader for `PHOTOTAG_SANITIZE_RULES`
-- Real conflict rules: server file or private `doku/phototag/sanitize-rules.json` — not in public repo except `docs/sanitize-rules.example.json` (placeholder tag names)
+- Code: generic rules only (e.g. `outdoor`/`indoor`) + optional JSON file path `PHOTOTAG_SANITIZE_RULES` (file lives **only** on server / private `doku/` — **never** commit rule JSON or examples to GitHub)
 
 ## Before push
 

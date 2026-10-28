@@ -2,10 +2,14 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.3.21
+
+- `docs/sanitize-rules.example.json` entfernt — **keine** Sanitize-/Regel-JSON im GitHub-Repo (nur Server + privates `doku/`).
+
 ## 0.3.20
 
 - **Public repo:** Snippet-/Required-Tag-Dateien entfernt; `post-update.sh` ohne Tag-Texte.
-- Sanitize: nur generisches `outdoor`/`indoor` im Code; weitere Regeln via **`PHOTOTAG_SANITIZE_RULES`** (JSON, Schema `docs/sanitize-rules.example.json`).
+- Sanitize: nur generisches `outdoor`/`indoor` im Code; weitere Regeln optional via **`PHOTOTAG_SANITIZE_RULES`** (JSON-Pfad nur auf dem Server, **keine** Regel-Datei im Repo).
 - Doku/Beispiele generisch (kein Homelab-Ordnerprefix in Referenz).
 
 ## 0.3.19

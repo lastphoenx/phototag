@@ -35,7 +35,7 @@ nano phototag.env
 - Liegt nur auf dem Server, **nicht** im GitHub-Repo (`categories.example.txt` ist nur Demo).
 - `post-update.sh` zählt Tag-Zeilen — **keine** Tag-Inhalte aus dem Repo.
 - Optional in **`phototag.env`:** `PHOTOTAG_REQUIRED_TAGS_FILE` (eine Tag-ID pro Zeile; nur Server).
-- Tag-Widersprüche: **`PHOTOTAG_SANITIZE_RULES`** → JSON (Schema: `docs/sanitize-rules.example.json`). Homelab-Regeln: privates `doku/phototag/sanitize-rules.json` nach `/opt/phototag/local/` kopieren.
+- Tag-Widersprüche: optional **`PHOTOTAG_SANITIZE_RULES`** (Pfad zu JSON **nur auf dem Server** — kein Beispiel im GitHub-Repo; Homelab-Master privat in `doku/`).
 
 ## 4. Verifizieren
 
