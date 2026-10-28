@@ -52,6 +52,7 @@ from phototag.config import (
     db_path,
     max_side,
     max_tags,
+    max_completion_tokens,
     model_name,
     reasoning_effort,
     thumb_quality,
@@ -322,6 +323,23 @@ def _message_text(message: dict) -> str:
     return ""
 
 
+def _salvage_partial_json(blob: str) -> dict | None:
+    """Aus abgeschnittener Modell-Antwort age_status + tags retten."""
+    age_m = re.search(r'"age_status"\s*:\s*"(yes|no|unsure)"', blob, re.I)
+    if not age_m:
+        return None
+    tags: list[str] = []
+    if '"tags"' in blob:
+        tail = blob.split('"tags"', 1)[1]
+        tags = re.findall(r'"([a-z][a-z0-9_]*)"', tail)
+        tags = [t for t in tags if t not in ("yes", "no", "unsure")]
+    cap_m = re.search(r'"caption"\s*:\s*"([^"]*)', blob)
+    out: dict = {"age_status": age_m.group(1).lower(), "tags": tags}
+    if cap_m:
+        out["caption"] = cap_m.group(1)[:160]
+    return out if tags or cap_m else None
+
+
 def parse_reply(text: str) -> dict:
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
     text = re.sub(r"```json\s*", "", text, flags=re.I)
@@ -338,6 +356,9 @@ def parse_reply(text: str) -> dict:
                 return json.loads(blob + suffix)
             except json.JSONDecodeError:
                 continue
+        salvaged = _salvage_partial_json(blob)
+        if salvaged:
+            return salvaged
         raise ValueError(f"keine JSON-Antwort: {text[:120]!r}") from None
 
 
@@ -349,7 +370,7 @@ def ask_model(frames: list[bytes], categories: list[tuple[str, str]], is_video: 
     payload = {
         "model": model_name(),
         "temperature": 0.1,
-        "max_tokens": 1024,
+        "max_tokens": max_completion_tokens(),
         "chat_template_kwargs": {"enable_thinking": False},
         "messages": [{"role": "user", "content": content}],
     }

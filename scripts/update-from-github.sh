@@ -88,3 +88,6 @@ if [[ ! -d .venv ]]; then
 fi
 .venv/bin/pip install -q -e .
 echo "phototag aktualisiert in $INSTALL_DIR (REF=$REF). categories.txt unverändert gelassen."
+if [[ "$REF" != main && "$REF" != master ]] && [[ ! "$REF" =~ ^[0-9a-f]{7,40}$ ]]; then
+  echo "Hinweis: Tag-Pin REF=$REF — fuer main: PHOTOTAG_REF und PHOTOTAG_TAG in phototag.env entfernen, oder scripts/bootstrap-update-from-main.sh" >&2
+fi

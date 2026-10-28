@@ -45,6 +45,10 @@ def reasoning_effort() -> str:
     return os.getenv("PHOTOTAG_REASONING_EFFORT", "none").strip()
 
 
+def max_completion_tokens() -> int:
+    return max(256, int(os.getenv("PHOTOTAG_MAX_TOKENS", "2048")))
+
+
 def thumb_side() -> int:
     return int(os.getenv("PHOTOTAG_THUMB_SIDE", "320"))
 

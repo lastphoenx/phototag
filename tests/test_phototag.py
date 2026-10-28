@@ -299,3 +299,16 @@ def test_payload_disables_thinking_for_ollama(monkeypatch: pytest.MonkeyPatch):
     ask_model([b"\xff\xd8\xff\xd9"], [("outdoor", "x")], False)
     assert "reasoning_effort" not in seen[-1]
     server.shutdown()
+
+
+def test_parse_reply_salvages_truncated_json():
+    from phototag.cli import parse_reply
+
+    blob = (
+        '{\n  "age_status": "yes",\n  "tags": [\n    "face_visible",\n    "clothed",\n'
+        '    "pose_sitting",\n    "furniture_h'
+    )
+    out = parse_reply(blob)
+    assert out["age_status"] == "yes"
+    assert "face_visible" in out["tags"]
+    assert "pose_sitting" in out["tags"]
