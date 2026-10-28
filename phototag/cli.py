@@ -12,6 +12,7 @@ Private Medienarchive: Bilder/Frames nur an deine eigene Vision-API (/v1), nicht
   python phototag.py search "" --folder Urlaub                     # nur Ordnerfilter
   python phototag.py reindex                          # Suchindex neu aufbauen
   python phototag.py stats | review | thumb <pfad> <out.jpg>
+  python phototag.py push-nc [--limit N] [--dry-run] [--force]
 
 Konfiguration per Umgebungsvariablen:
   PHOTOTAG_DB            (default phototag.db)
@@ -455,6 +456,51 @@ def cmd_reindex(_args) -> None:
     print("Suchindex neu aufgebaut.")
 
 
+def cmd_push_nc(args) -> None:
+    from phototag.nextcloud_sync import (
+        load_nc_config,
+        pending_tagged_images,
+        push_image_tags,
+    )
+
+    cfg = load_nc_config()
+    con = connect()
+    rows = pending_tagged_images(con, limit=args.limit or 0, force=args.force)
+    if not rows:
+        print("Nichts zu pushen (alle Tags schon in nc_pushed — ggf. --force).")
+        return
+    tag_cache: dict[str, int] = {}
+    files_ok = 0
+    tags_pushed = 0
+    for row in rows:
+        tags = [
+            r["tag"]
+            for r in con.execute("SELECT tag FROM tags WHERE image_id=? ORDER BY tag", (row["id"],))
+        ]
+        if not tags:
+            continue
+        if args.force:
+            con.execute("DELETE FROM nc_pushed WHERE image_id=?", (row["id"],))
+        try:
+            n = push_image_tags(
+                con,
+                cfg,
+                image_id=row["id"],
+                path=row["path"],
+                tags=tags,
+                tag_cache=tag_cache,
+                dry_run=args.dry_run,
+            )
+            if not args.dry_run:
+                con.commit()
+            tags_pushed += n
+            files_ok += 1
+            print(f"{'[dry-run] ' if args.dry_run else ''}{row['path']}: {len(tags)} Tag(s)")
+        except RuntimeError as exc:
+            print(f"FEHLER {row['path']}: {exc}", file=sys.stderr)
+    print(f"-- {files_ok} Datei(en), {tags_pushed} Tag-Zuweisung(en)")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -470,6 +516,11 @@ def main() -> None:
     sub.add_parser("stats").set_defaults(fn=cmd_stats)
     sub.add_parser("review").set_defaults(fn=cmd_review)
     sub.add_parser("reindex").set_defaults(fn=cmd_reindex)
+    pn = sub.add_parser("push-nc", help="Tags als Nextcloud-Schlagworte (Systemtags) setzen")
+    pn.add_argument("--limit", type=int, default=0)
+    pn.add_argument("--dry-run", action="store_true")
+    pn.add_argument("--force", action="store_true", help="Alle tagged erneut pushen")
+    pn.set_defaults(fn=cmd_push_nc)
     args = p.parse_args()
     args.fn(args)
 

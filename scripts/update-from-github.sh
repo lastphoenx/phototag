@@ -56,7 +56,8 @@ download() {
 
 if ! download; then
   echo "phototag: Download fehlgeschlagen ($ARCHIVE)." >&2
-  echo "Privates Repo? GITHUB_TOKEN setzen oder Repo öffentlich machen (Settings → visibility)." >&2
+  echo "Häufig: REF/Tag existiert nicht (nur v0.3.0?) — gh release list / git tag auf GitHub prüfen." >&2
+  echo "Oder: privates Repo → GITHUB_TOKEN; oder git clone + git pull statt ZIP." >&2
   exit 1
 fi
 

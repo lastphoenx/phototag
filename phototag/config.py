@@ -45,6 +45,31 @@ def thumb_quality() -> int:
     return int(os.getenv("PHOTOTAG_THUMB_QUALITY", "70"))
 
 
+def nc_url() -> str:
+    return os.getenv("PHOTOTAG_NC_URL", "").strip()
+
+
+def nc_user() -> str:
+    return os.getenv("PHOTOTAG_NC_USER", "").strip()
+
+
+def nc_dav_prefix() -> str:
+    """Path under .../remote.php/dav/files/USER/ matching phototag scan root (e.g. Photos/OF)."""
+    return os.getenv("PHOTOTAG_NC_DAV_PREFIX", "").strip()
+
+
+def nc_app_token() -> str:
+    direct = os.getenv("PHOTOTAG_NC_APP_PASSWORD", "").strip()
+    if direct:
+        return direct
+    path = os.getenv("PHOTOTAG_NC_TOKEN_FILE", "").strip() or os.getenv(
+        "PHOTOTAG_NC_PASSWORD_FILE", ""
+    ).strip()
+    if path:
+        return Path(path).read_text(encoding="utf-8").strip()
+    return ""
+
+
 def categories_path() -> Path:
     """PHOTOTAG_CATEGORIES, else ./categories.txt, else packaged categories.example.txt."""
     global _example_warned
