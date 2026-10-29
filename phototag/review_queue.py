@@ -5,7 +5,7 @@ import json
 import sqlite3
 from typing import Any
 
-from phototag.config import max_tags
+from phototag.config import caption_max, max_tags
 from phototag.nextcloud_sync import nc_dav_relative_path
 
 
@@ -89,14 +89,14 @@ def approve_image(
         final_tags = normalize_chosen_tags(tags, allowed)
         if not final_tags:
             raise ValueError(f"id={image_id} keine gültigen Tags (categories.txt)")
-        final_caption = (caption or row["caption"] or cap_from_raw or "")[:160]
+        final_caption = (caption or row["caption"] or cap_from_raw or "")[: caption_max()]
     else:
         if flags:
             raise ValueError(f"id={image_id} sanitize: {','.join(flags)} — Tags im UI anpassen oder --tag setzen")
         final_tags = proposed
         if not final_tags:
             raise ValueError(f"id={image_id} keine Tags in model_raw")
-        final_caption = (caption or row["caption"] or cap_from_raw or "")[:160]
+        final_caption = (caption or row["caption"] or cap_from_raw or "")[: caption_max()]
 
     con.execute("DELETE FROM nc_pushed WHERE image_id=?", (image_id,))
     con.execute("DELETE FROM tags WHERE image_id=?", (image_id,))
@@ -159,7 +159,7 @@ def backfill_review_captions(con: sqlite3.Connection) -> int:
         _, cap, _ = proposed_tags_from_row(row, set())
         if not cap:
             continue
-        con.execute("UPDATE images SET caption=? WHERE id=?", (cap[:160], row["id"]))
+        con.execute("UPDATE images SET caption=? WHERE id=?", (cap[: caption_max()], row["id"]))
         n += 1
     if n:
         con.commit()

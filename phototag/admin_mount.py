@@ -14,7 +14,7 @@ from phototag.admin_browse import (
     physical_path_for_logical,
 )
 from phototag.cli import IMAGE_EXTS, VIDEO_EXTS, encode_image, index_image, sha1_of
-from phototag.config import scan_root
+from phototag.config import caption_max, scan_root
 from phototag.nextcloud_sync import nc_dav_relative_path
 from phototag.review_queue import normalize_chosen_tags, proposed_tags_from_row
 
@@ -259,7 +259,7 @@ def save_mount_tags(
     final_tags = normalize_chosen_tags(tags, allowed)
     if not final_tags:
         raise ValueError("Mindestens ein gültiger Tag (categories.txt)")
-    final_caption = (caption or "")[:160]
+    final_caption = (caption or "")[: caption_max()]
     con.execute("DELETE FROM nc_pushed WHERE image_id=?", (image_id,))
     con.execute("DELETE FROM tags WHERE image_id=?", (image_id,))
     con.executemany("INSERT INTO tags VALUES(?,?)", [(image_id, t) for t in final_tags])

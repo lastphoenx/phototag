@@ -37,6 +37,11 @@ def max_tags() -> int:
     return int(os.getenv("PHOTOTAG_MAX_TAGS", "12"))
 
 
+def caption_max() -> int:
+    """Max caption length stored and sent to the vision model (chars)."""
+    return max(80, min(500, int(os.getenv("PHOTOTAG_CAPTION_MAX", "320"))))
+
+
 def reasoning_effort() -> str:
     """Ollama /v1: 'none' deaktiviert Denk-Modus (chat_template_kwargs/think oft ignoriert).
 

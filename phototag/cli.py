@@ -23,6 +23,7 @@ Konfiguration per Umgebungsvariablen:
   PHOTOTAG_VIDEO_FRAMES  (default 6, erlaubt 5-8) Frames pro Video
   PHOTOTAG_VIDEO_SIDE    (default 768)   Kantenlänge pro Video-Frame
   PHOTOTAG_MAX_TAGS      (default 12)    max. Tags pro Datei
+  PHOTOTAG_CAPTION_MAX   (default 320)   max. Caption-Zeichen (Modell + DB)
   PHOTOTAG_PROMPT_LANG   (de|en, default de)  Anweisungssprache an das Modell
   PHOTOTAG_VERBOSE       (1/true) oder phototag tag -v  zeigt caption, observations, raw JSON
   PHOTOTAG_THUMB_SIDE / PHOTOTAG_THUMB_QUALITY (default 320 / 70)
@@ -53,6 +54,7 @@ from phototag.config import (
     categories_path,
     cli_verbose,
     db_path,
+    caption_max,
     max_side,
     max_tags,
     max_completion_tokens,
@@ -311,7 +313,7 @@ def build_prompt(categories: list[tuple[str, str]], is_video: bool) -> str:
             f"{lines}\n"
             "- Follow the short hint after each tag in the list (lines \"tag: …\").\n"
             "- observations: optional short phrases for details without a matching tag, max 8 items.\n"
-            "- caption: one factual sentence in German (max 160 characters).\n"
+            f"- caption: one factual sentence in German (max {caption_max()} characters).\n"
             "Do not invent tag ids outside the list; put extras in observations."
         )
     where = (
@@ -328,7 +330,7 @@ def build_prompt(categories: list[tuple[str, str]], is_video: bool) -> str:
         f"{lines}\n"
         "- Halte dich an die Kurz-Hinweise hinter jedem Tag in der Liste (Zeilen «tag: …»).\n"
         "- observations: optional kurze Beobachtungen zu Details ohne passenden Tag, max. 8 Einträge.\n"
-        "- caption: ein sachlicher Satz auf Deutsch (max. 160 Zeichen).\n"
+        f"- caption: ein sachlicher Satz auf Deutsch (max. {caption_max()} Zeichen).\n"
         "Erfinde keine Tag-IDs ausserhalb der Liste; Extras gehören in observations."
     )
 
@@ -366,7 +368,7 @@ def _salvage_partial_json(blob: str) -> dict | None:
     cap_m = re.search(r'"caption"\s*:\s*"([^"]*)', blob)
     out: dict = {"age_status": age_m.group(1).lower(), "tags": tags}
     if cap_m:
-        out["caption"] = cap_m.group(1)[:160]
+        out["caption"] = cap_m.group(1)[: caption_max()]
     return out if tags or cap_m else None
 
 
@@ -438,7 +440,7 @@ def _apply_model_output(out: dict, allowed: set[str]) -> tuple[list[str], list[s
     raw_tag_list = [str(t).strip().lower() for t in out.get("tags", []) if str(t).strip()]
     tags = sorted({t for t in raw_tag_list if t in allowed})[: max_tags()]
     dropped = sorted({t for t in raw_tag_list if t not in allowed})
-    caption = str(out.get("caption", ""))[:160]
+    caption = str(out.get("caption", ""))[: caption_max()]
     model_raw = json.dumps(out, ensure_ascii=False)[:16000]
     return tags, dropped, caption, model_raw
 

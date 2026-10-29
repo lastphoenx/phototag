@@ -2,6 +2,12 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.5
+
+- **KI-Queue UI:** Warteschlange = **gelber** Rahmen/Button/Badge; laufende Datei = **blau** (pulsierender Rahmen).
+- **Speichern:** Klick sichtbar («Speichere …», grauer Rahmen), Erfolg **grüner Rahmen** + Button «Gespeichert ✓» (~3 s).
+- **Caption:** Default-Limit **320 Zeichen** (`PHOTOTAG_CAPTION_MAX`, vorher fest 160) — Prompt, DB und Speichern einheitlich.
+
 ## 0.5.4
 
 - **Browse-Filter «Mit Tags» / «In Review»:** DB-first (Status-Index), kein Mount-Durchlauf mit Full-Table-Scan pro Datei — Ordner mit vielen ungetaggten Dateien lädt nur getaggte/review-Einträge schnell.

@@ -101,6 +101,8 @@ def tag_one_row(
         sanitize_tags,
     )
 
+    from phototag.config import caption_max
+
     categories = load_categories()
     allowed = {t for t, _ in categories}
     path = Path(row["root"]) / row["path"]
@@ -160,7 +162,7 @@ def tag_one_row(
     if v:
         _print_tag_extras(
             out,
-            caption if status == "tagged" else str(out.get("caption", ""))[:160],
+            caption if status == "tagged" else str(out.get("caption", ""))[: caption_max()],
             dropped,
             v,
             sanitize_flags,

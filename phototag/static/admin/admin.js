@@ -14,13 +14,31 @@
   async function withBusyButton(btn, busyLabel, fn) {
     const prev = btn.textContent;
     btn.disabled = true;
+    btn.classList.add("btn-busy");
     btn.textContent = busyLabel;
     try {
       return await fn();
     } finally {
-      btn.disabled = false;
-      btn.textContent = prev;
+      if (!btn.classList.contains("action-ok-btn")) {
+        btn.disabled = false;
+        btn.classList.remove("btn-busy");
+        btn.textContent = prev;
+      }
     }
+  }
+
+  function flashActionOk(card, btn, okText, resetText) {
+    card.classList.remove("save-pending");
+    card.classList.add("action-ok");
+    btn.classList.remove("btn-busy");
+    btn.classList.add("action-ok-btn");
+    btn.disabled = false;
+    btn.textContent = okText;
+    setTimeout(() => {
+      card.classList.remove("action-ok");
+      btn.classList.remove("action-ok-btn");
+      btn.textContent = resetText;
+    }, 2800);
   }
 
   async function persistImageTags(item, tags, caption, push) {
@@ -218,7 +236,7 @@
       (st === "review" ? " review" : st === "tagged" ? " tagged" : "");
   }
 
-  function setKiOverlay(ctx, text) {
+  function setKiOverlay(ctx, text, kind) {
     if (!ctx || !ctx.card) return;
     let el = ctx.card.querySelector(".ki-state");
     if (!el) {
@@ -226,6 +244,7 @@
       el.className = "ki-state hidden";
       ctx.card.appendChild(el);
     }
+    el.classList.remove("is-queued", "is-running");
     if (!text) {
       el.classList.add("hidden");
       el.textContent = "";
@@ -233,6 +252,11 @@
     }
     el.textContent = text;
     el.classList.remove("hidden");
+    if (kind === "running") {
+      el.classList.add("is-running");
+    } else {
+      el.classList.add("is-queued");
+    }
   }
 
   function markCardKiState(ctx, state, pos, total) {
@@ -245,17 +269,17 @@
       ctx.tagBtn.classList.add("ki-queued");
       ctx.card.classList.add("ki-queued");
       ctx.tagBtn.textContent = "Warteschlange" + posLabel;
-      setKiOverlay(ctx, "Warteschlange" + posLabel);
+      setKiOverlay(ctx, "Warteschlange" + posLabel, "queued");
     } else if (state === "running") {
       ctx.tagBtn.disabled = true;
       ctx.tagBtn.classList.add("ki-busy");
       ctx.card.classList.add("ki-busy");
       ctx.tagBtn.textContent = "KI läuft" + posLabel + " …";
-      setKiOverlay(ctx, "KI aktiv" + posLabel);
+      setKiOverlay(ctx, "KI aktiv" + posLabel, "running");
     } else {
       ctx.tagBtn.disabled = false;
       ctx.tagBtn.textContent = "KI taggen";
-      setKiOverlay(ctx, "");
+      setKiOverlay(ctx, "", "");
     }
   }
 
@@ -278,24 +302,30 @@
     approveBtn.className = "ok";
     approveBtn.textContent = "Freigeben";
     approveBtn.onclick = async () => {
-      await withBusyButton(approveBtn, "Freigabe …", async () => {
-        try {
-          const tags = getTags();
-          if (!tags.length) {
-            setStatus("Mindestens ein Tag nötig — Feld ausfüllen und + oder Vorschlag klicken", true);
-            return;
-          }
-          const push = document.getElementById("pushAfter").checked;
-          if (push) {
-            setStatus("Freigabe inkl. push-nc … (kann bei vielen Tags dauern)");
-          }
-          await persistImageTags(item, tags, capArea.value.trim(), push);
-          card.remove();
-          setStatus("Freigegeben: " + item.nc_path);
-        } catch (e) {
-          setStatus(String(e.message || e), true);
+      approveBtn.disabled = true;
+      approveBtn.classList.add("btn-busy");
+      approveBtn.textContent = "Freigabe …";
+      card.classList.add("save-pending");
+      try {
+        const tags = getTags();
+        if (!tags.length) {
+          setStatus("Mindestens ein Tag nötig — Feld ausfüllen und + oder Vorschlag klicken", true);
+          return;
         }
-      });
+        const push = document.getElementById("pushAfter").checked;
+        if (push) {
+          setStatus("Freigabe inkl. push-nc … (kann dauern)");
+        }
+        await persistImageTags(item, tags, capArea.value.trim(), push);
+        card.remove();
+        setStatus("Freigegeben: " + item.nc_path);
+      } catch (e) {
+        setStatus(String(e.message || e), true);
+        card.classList.remove("save-pending");
+        approveBtn.disabled = false;
+        approveBtn.classList.remove("btn-busy");
+        approveBtn.textContent = "Freigeben";
+      }
     };
 
     const skipBtn = document.createElement("button");
@@ -441,38 +471,54 @@
     saveBtn.className = "ok";
     saveBtn.textContent = "Speichern";
     saveBtn.onclick = async () => {
-      await withBusyButton(saveBtn, "Speichere …", async () => {
-        try {
-          const tags = getTagsRef.current();
-          if (!tags.length) {
-            setStatus(
-              "Mindestens ein gültiger Tag — aus categories.txt, dann + oder Vorschlag",
-              true
-            );
-            return;
-          }
-          const push = document.getElementById("pushAfter").checked;
-          const inRev = item.in_review || item.status === "review";
-          if (push && inRev) {
-            setStatus("Speichern/Freigabe inkl. push-nc …");
-          }
-          const res = await persistImageTags(item, tags, capArea.value.trim(), push);
-          updateStatusBadge(badge, "tagged");
-          item.status = "tagged";
-          item.in_review = false;
-          if (res.id) {
-            card.dataset.id = res.id;
-            item.id = res.id;
-          }
+      saveBtn.disabled = true;
+      saveBtn.classList.add("btn-busy");
+      saveBtn.textContent = "Speichere …";
+      card.classList.add("save-pending");
+      try {
+        const tags = getTagsRef.current();
+        if (!tags.length) {
           setStatus(
-            (inRev ? "Freigegeben: " : push ? "DB + NC: " : "DB: ") +
-              item.nc_path +
-              (res.pushed_tags ? " (" + res.pushed_tags + " Tags NC)" : "")
+            "Mindestens ein gültiger Tag — aus categories.txt, dann + oder Vorschlag",
+            true
           );
-        } catch (e) {
-          setStatus(String(e.message || e), true);
+          card.classList.remove("save-pending");
+          saveBtn.disabled = false;
+          saveBtn.classList.remove("btn-busy");
+          saveBtn.textContent = "Speichern";
+          return;
         }
-      });
+        const push = document.getElementById("pushAfter").checked;
+        const inRev = item.in_review || item.status === "review";
+        if (push) {
+          setStatus(inRev ? "Freigabe inkl. push-nc …" : "Speichern inkl. push-nc …");
+        }
+        const res = await persistImageTags(item, tags, capArea.value.trim(), push);
+        updateStatusBadge(badge, "tagged");
+        item.status = "tagged";
+        item.in_review = false;
+        if (res.id) {
+          card.dataset.id = res.id;
+          item.id = res.id;
+        }
+        const msg =
+          (inRev ? "Freigegeben: " : push ? "DB + NC: " : "Gespeichert: ") +
+          item.nc_path +
+          (res.pushed_tags ? " (" + res.pushed_tags + " Tags NC)" : "");
+        setStatus(msg);
+        flashActionOk(
+          card,
+          saveBtn,
+          inRev ? "Freigegeben ✓" : "Gespeichert ✓",
+          "Speichern"
+        );
+      } catch (e) {
+        setStatus(String(e.message || e), true);
+        card.classList.remove("save-pending");
+        saveBtn.disabled = false;
+        saveBtn.classList.remove("btn-busy");
+        saveBtn.textContent = "Speichern";
+      }
     };
     actions.append(saveBtn);
 
