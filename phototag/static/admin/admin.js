@@ -308,11 +308,11 @@
     const where = browseFolder ? browseFolder + "/" : "OF/";
     if (!data.items.length) {
       setStatus(
-        "Keine Dateien in " +
+        "Keine indexierten Dateien in " +
           where +
           " (Filter: " +
           filter +
-          "). Unterordner-Buttons oben nutzen."
+          "). In Unterordner wechseln oder: phototag scan auf PHOTOTAG_SCAN_ROOT."
       );
       return;
     }

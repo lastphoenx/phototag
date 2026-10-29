@@ -10,6 +10,7 @@ from phototag.config import (
     admin_session_secret,
     admin_token,
     admin_user,
+    scan_root,
     validate_admin_auth_config,
     verify_admin_password,
 )
@@ -18,6 +19,7 @@ from phototag.admin_browse import (
     browse_row_to_api_dict,
     list_browse_rows,
     list_child_folders,
+    mount_accessible,
     normalize_folder,
     resolve_images_root,
 )
@@ -142,7 +144,15 @@ def create_app():
         root = resolve_images_root(con)
         parent = normalize_folder(request.args.get("folder", "") or "")
         folders = list_child_folders(con, root, parent)
-        return jsonify({"folder": parent, "root": root, "folders": folders})
+        return jsonify(
+            {
+                "folder": parent,
+                "root": root,
+                "folders": folders,
+                "mount_ok": mount_accessible(),
+                "scan_root": str(Path(scan_root()).resolve()) if mount_accessible() else "",
+            }
+        )
 
     @app.get("/api/browse")
     def api_browse_list():
@@ -156,7 +166,7 @@ def create_app():
         limit = request.args.get("limit", 80, type=int)
         offset = request.args.get("offset", 0, type=int)
         allowed = {t for t, _ in load_categories()}
-        rows, total = list_browse_rows(con, root, folder, filter_key, limit=limit, offset=offset)
+        rows, total = list_browse_rows(con, folder, filter_key, limit=limit, offset=offset)
         items = [browse_row_to_api_dict(con, r, allowed) for r in rows]
         return jsonify(
             {

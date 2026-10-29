@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.3.32
+
+- **Admin-Browse:** Unterordner vom **Mount** (`PHOTOTAG_SCAN_ROOT`) plus DB — ganzer OF-Baum sichtbar; Dateien weiterhin nur wo **scan** indexiert hat. Bildliste über alle DB-`root`-Werte.
+
 ## 0.3.31
 
 - **Admin-Browse:** Ordnernavigation aus **NC-Anzeigepfad** (`nc_dav_relative_path`), nicht nur DB-`folder` — funktioniert auch bei Scan nur eines Unterordners (z. B. `…/Test`).
