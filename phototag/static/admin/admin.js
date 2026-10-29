@@ -355,11 +355,26 @@
     kiFlushTimer = setTimeout(flushKiPendingJob, 400);
   }
 
-  function queueKiTag(item, ctx) {
+  function tagRetagCheckboxChecked() {
+    return !!document.getElementById("tagRetag")?.checked;
+  }
+
+  /** @returns {boolean|null} true = proceed with retag, false = abort, null = normal KI (not tagged) */
+  function confirmKiForItem(item) {
+    if (item.status !== "tagged") return null;
+    const viaCheckbox = tagRetagCheckboxChecked();
+    const msg = viaCheckbox
+      ? "Datei ist bereits getaggt.\n\nKI erneut ausführen und Caption/Tags in der DB überschreiben?"
+      : "Datei ist bereits getaggt — ohne Bestätigung startet kein KI-Lauf.\n\nJetzt neu taggen (DB wird überschrieben)?";
+    return confirm(msg);
+  }
+
+  function queueKiTag(item, ctx, forceRetag) {
     const nc = item.nc_path;
     if (kiPendingNc.has(nc) || kiJobCards.has(nc)) return;
+    const useRetag = !!forceRetag || tagRetagCheckboxChecked();
     markCardKiState(ctx, "queued");
-    kiPendingNc.set(nc, ctx);
+    kiPendingNc.set(nc, { ctx, retag: useRetag });
     updateKiQueueHint();
     if (kiJobRunning) return;
     scheduleKiJobFlush();
@@ -372,20 +387,27 @@
     kiPendingNc.clear();
     const nc_paths = entries.map(([p]) => p);
     kiJobOrder = nc_paths;
-    entries.forEach(([p, ctx], idx) => {
-      kiJobCards.set(p, ctx);
-      markCardKiState(ctx, "queued", idx + 1, nc_paths.length);
+    entries.forEach(([p, entry], idx) => {
+      kiJobCards.set(p, entry.ctx);
+      markCardKiState(entry.ctx, "queued", idx + 1, nc_paths.length);
     });
-    const retag = document.getElementById("tagRetag")?.checked;
+    const retag =
+      tagRetagCheckboxChecked() || entries.some(([, entry]) => entry.retag);
     try {
       const data = await api("/api/tag/jobs", {
         method: "POST",
         body: JSON.stringify({ nc_paths, retag, recursive: false }),
       });
       if (!data.ok || !data.job || data.job.total === 0) {
-        entries.forEach(([, ctx]) => resetKiTagButton(ctx));
+        entries.forEach(([, entry]) => resetKiTagButton(entry.ctx));
         kiJobCards.clear();
-        setStatus((data && data.error) || "Keine Dateien für KI-Job (Mount/Index?)", true);
+        let err =
+          (data && data.error) || "Keine Dateien für KI-Job (Mount/Index?)";
+        if (data && data.error === "Keine Dateien für Job") {
+          err =
+            "Kein KI-Lauf: Datei(en) bereits getaggt — «Neu taggen» aktivieren oder beim Klick bestätigen.";
+        }
+        setStatus(err, true);
         return;
       }
       kiJobRunning = true;
@@ -393,7 +415,7 @@
       showJobPanel(data.job);
       pollTagJob(data.job.id, true);
     } catch (e) {
-      entries.forEach(([, ctx]) => resetKiTagButton(ctx));
+      entries.forEach(([, entry]) => resetKiTagButton(entry.ctx));
       kiJobCards.clear();
       setStatus(String(e.message || e), true);
     }
@@ -532,7 +554,16 @@
       tagBlock,
       getTagsRef,
     };
-    tagBtn.onclick = () => queueKiTag(item, kiCtx);
+    tagBtn.onclick = () => {
+      const tagged = item.status === "tagged";
+      if (tagged) {
+        const ok = confirmKiForItem(item);
+        if (!ok) return;
+        queueKiTag(item, kiCtx, true);
+        return;
+      }
+      queueKiTag(item, kiCtx, false);
+    };
     actions.append(tagBtn);
 
     appendReviewActions(actions, {
@@ -758,9 +789,14 @@
 
   async function startFolderTagJob() {
     const folder = browseFolder;
-    const retag = document.getElementById("tagRetag").checked;
+    const retag = tagRetagCheckboxChecked();
     const recursive = document.getElementById("tagRecursive").checked;
-    if (!confirm("KI-Tagging für Ordner «" + (folder || "OF") + "» starten?")) return;
+    let msg = "KI-Tagging für Ordner «" + (folder || "OF") + "» starten?";
+    if (retag) {
+      msg +=
+        "\n\nNeu taggen ist aktiv — auch bereits getaggte Dateien werden erneut durch KI verarbeitet.";
+    }
+    if (!confirm(msg)) return;
     const folderBtn = document.getElementById("tagFolderBtn");
     folderBtn.disabled = true;
     folderBtn.classList.add("ki-busy");
@@ -842,6 +878,7 @@
     const browse = isBrowseMode();
     document.getElementById("folderNav").classList.toggle("hidden", !browse);
     document.getElementById("filterWrap").classList.toggle("hidden", !browse);
+    document.getElementById("retagWrap").classList.toggle("hidden", !browse);
     document.getElementById("subfolders").classList.toggle("hidden", !browse);
   }
 

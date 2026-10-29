@@ -58,3 +58,24 @@ def test_create_tag_job_counts_new(env_db):
     job = get_tag_job(con, job_id)
     assert job["total"] == 1
     assert job["status"] == "pending"
+
+
+def test_resolve_nc_path_retag_includes_tagged(env_db):
+    mount = env_db
+    con = connect()
+    con.execute(
+        "INSERT INTO images(root,path,folder,kind,status) VALUES(?,?,?,?,?)",
+        (str(mount), "sub/a.jpg", "sub", "image", "tagged"),
+    )
+    con.commit()
+    spec = {
+        "folders": [],
+        "nc_paths": ["sub/a.jpg"],
+        "retag": False,
+        "recursive": False,
+    }
+    assert len(resolve_rows_for_spec(con, spec)) == 0
+    spec["retag"] = True
+    rows = resolve_rows_for_spec(con, spec)
+    assert len(rows) == 1
+    assert rows[0]["status"] == "tagged"

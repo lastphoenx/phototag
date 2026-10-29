@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.7
+
+- **Retag in der Web-UI:** Bereits **tagged** Dateien ohne `retag` lieferten Jobs mit **0 Dateien** (Backend überspringt sie absichtlich). Beim Klick **KI taggen** erscheint jetzt eine **Bestätigung**; danach wird `retag: true` gesendet. Checkbox **Neu taggen** neben dem Filter sichtbar; klarere Fehlermeldung wenn kein Lauf startet.
+
 ## 0.5.6
 
 - **`categories.example.txt`:** Abschnitt Stoff/Transparenz (`sheer`, `see_through`, `sheer_wet`, …) als Vorlage für lokale `categories.txt`.
