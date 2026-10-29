@@ -79,6 +79,11 @@ def nc_user() -> str:
     return os.getenv("PHOTOTAG_NC_USER", "").strip()
 
 
+def scan_root() -> str:
+    """Mount / local tree root (same as phototag scan when indexing full OF)."""
+    return os.getenv("PHOTOTAG_SCAN_ROOT", "").strip()
+
+
 def nc_dav_prefix() -> str:
     """Path under .../remote.php/dav/files/USER/ matching phototag scan root."""
     return os.getenv("PHOTOTAG_NC_DAV_PREFIX", "").strip()

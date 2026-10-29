@@ -2,6 +2,14 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.3.24
+
+- **`push-nc`:** Tag-Zuweisung an Dateien mit WebDAV-PUT + XML (wie Nextcloud-UI). Leerer PUT + HTTP **412** wurde fälschlich als «schon ok» gewertet → Schlagworte existierten global, aber **nicht** dateispezifisch angehakt. Nach Update: `phototag push-nc --force` für betroffene Dateien.
+
+## 0.3.23
+
+- **`push-nc`:** WebDAV-Pfad aus `PHOTOTAG_SCAN_ROOT` + DB-`root` + `path` — Subfolder-Scan (z. B. `…/Zum Löschen/Test`) braucht **kein** manuelles Überschreiben von `PHOTOTAG_NC_DAV_PREFIX` mehr; `.env` bleibt `PHOTOTAG_NC_DAV_PREFIX=OF`.
+
 ## 0.3.22
 
 - `scripts/ensure-rclone-mount.sh`, `stop-rclone-mount.sh`, systemd `phototag-rclone-mount.service`; Nacht-Lauf startet Mount wenn `PHOTOTAG_RCLONE_MOUNT` gesetzt.

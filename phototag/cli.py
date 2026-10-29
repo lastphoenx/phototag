@@ -699,6 +699,7 @@ def cmd_reindex(_args) -> None:
 def cmd_push_nc(args) -> None:
     from phototag.nextcloud_sync import (
         load_nc_config,
+        nc_dav_relative_path,
         pending_tagged_images,
         push_image_tags,
     )
@@ -721,12 +722,13 @@ def cmd_push_nc(args) -> None:
             continue
         if args.force:
             con.execute("DELETE FROM nc_pushed WHERE image_id=?", (row["id"],))
+        dav_path = nc_dav_relative_path(row["root"], row["path"])
         try:
             n = push_image_tags(
                 con,
                 cfg,
                 image_id=row["id"],
-                path=row["path"],
+                path=dav_path,
                 tags=tags,
                 tag_cache=tag_cache,
                 dry_run=args.dry_run,

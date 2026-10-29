@@ -16,6 +16,7 @@ from phototag.nextcloud_sync import (
     assign_tag_to_file,
     ensure_system_tag,
     file_id,
+    nc_dav_relative_path,
     push_image_tags,
 )
 
@@ -85,9 +86,20 @@ def test_push_nc_mock_server(nc_env: Path, monkeypatch: pytest.MonkeyPatch):
 
         def do_PUT(self) -> None:
             path = urlparse(self.path).path
-            parts = path.rstrip("/").split("/")
-            assigned.append((int(parts[-2]), int(parts[-1])))
-            self.send_response(201)
+            if "systemtags-relations" in path:
+                length = int(self.headers.get("Content-Length", 0))
+                if length <= 0:
+                    self.send_response(412)
+                    self.end_headers()
+                    return
+                parts = path.rstrip("/").split("/")
+                assigned.append((int(parts[-2]), int(parts[-1])))
+                self.send_response(201)
+                self.end_headers()
+                return
+            length = int(self.headers.get("Content-Length", 0))
+            self.rfile.read(length)
+            self.send_response(404)
             self.end_headers()
 
     server = HTTPServer(("127.0.0.1", 0), Handler)
@@ -103,7 +115,7 @@ def test_push_nc_mock_server(nc_env: Path, monkeypatch: pytest.MonkeyPatch):
     cache: dict[str, int] = {}
     tid = ensure_system_tag(cfg, cache, "outdoor")
     assert tid == 7
-    assign_tag_to_file(cfg, 42, tid)
+    assign_tag_to_file(cfg, 42, tid, "outdoor")
     assert assigned == [(42, 7)]
 
     con = connect()
@@ -117,6 +129,16 @@ def test_push_nc_mock_server(nc_env: Path, monkeypatch: pytest.MonkeyPatch):
     n = push_image_tags(con, cfg, image_id=iid, path="a/b.jpg", tags=["outdoor"], tag_cache=cache)
     assert n == 1
     server.shutdown()
+
+
+def test_nc_dav_relative_path_subfolder_scan(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("PHOTOTAG_SCAN_ROOT", "/mnt/nextcloud-of")
+    assert (
+        nc_dav_relative_path("/mnt/nextcloud-of/Zum Löschen/Test", "IMG_1599.MOV")
+        == "Zum Löschen/Test/IMG_1599.MOV"
+    )
+    assert nc_dav_relative_path("/mnt/nextcloud-of", "foo.jpg") == "foo.jpg"
+    assert nc_dav_relative_path("/var/cache/quick", "foo.jpg") == "foo.jpg"
 
 
 def _tag_post_capture(monkeypatch: pytest.MonkeyPatch):

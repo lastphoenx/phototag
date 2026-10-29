@@ -12,6 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+import xml.sax.saxutils as xml_escape
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -23,6 +24,7 @@ from phototag.config import (
     nc_tls_insecure,
     nc_url,
     nc_user,
+    scan_root,
 )
 
 _insecure_warned = False
@@ -65,8 +67,29 @@ def load_nc_config() -> NcConfig:
     )
 
 
+def nc_dav_relative_path(image_root: str, rel_path: str) -> str:
+    """WebDAV path segment under PHOTOTAG_NC_DAV_PREFIX (posix).
+
+    DB stores (root, path) relative to the scan argument. When root differs from
+    PHOTOTAG_SCAN_ROOT (subfolder scan), prefix the offset so push-nc hits NC.
+    """
+    rel_path = rel_path.lstrip("/")
+    sr = scan_root()
+    if not sr:
+        return rel_path
+    try:
+        base = Path(sr).resolve()
+        root = Path(image_root).resolve()
+        sub = root.relative_to(base)
+        if sub.as_posix() == ".":
+            return rel_path
+        return f"{sub.as_posix()}/{rel_path}"
+    except ValueError:
+        return rel_path
+
+
 def dav_file_url(cfg: NcConfig, relative_path: str) -> str:
-    """relative_path = phototag path under scan root (posix)."""
+    """relative_path = path under dav_prefix (posix), usually from nc_dav_relative_path."""
     rel = relative_path.lstrip("/")
     if cfg.dav_prefix:
         rel = f"{cfg.dav_prefix}/{rel}" if rel else cfg.dav_prefix
@@ -251,14 +274,41 @@ def ensure_system_tag(cfg: NcConfig, cache: dict[str, int], tag_name: str) -> in
     raise RuntimeError(f"Systemtag anlegen/fehlend: {key} (HTTP {status})")
 
 
-def assign_tag_to_file(cfg: NcConfig, file_id: int, tag_id: int) -> None:
+def _systemtag_relation_put_body(tag_name: str) -> bytes:
+    """XML body for PUT systemtags-relations (Nextcloud Web UI sends the same)."""
+    visible, assignable = _TAG_LEVELS[nc_tag_level()]
+    name = xml_escape.escape(tag_name.strip().lower())
+    vis = "true" if visible else "false"
+    assign = "true" if assignable else "false"
+    return (
+        '<?xml version="1.0"?>'
+        '<d:propertyupdate xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">'
+        "<d:set><d:prop>"
+        f"<oc:display-name>{name}</oc:display-name>"
+        f"<oc:user-visible>{vis}</oc:user-visible>"
+        f"<oc:user-assignable>{assign}</oc:user-assignable>"
+        "</d:prop></d:set></d:propertyupdate>"
+    ).encode("utf-8")
+
+
+def assign_tag_to_file(cfg: NcConfig, file_id: int, tag_id: int, tag_name: str) -> None:
     url = f"{cfg.base_url}/remote.php/dav/systemtags-relations/files/{file_id}/{tag_id}"
-    status, _ = _request(cfg, "PUT", url)
+    body = _systemtag_relation_put_body(tag_name)
+    status, raw = _request(
+        cfg,
+        "PUT",
+        url,
+        data=body,
+        headers={"Content-Type": "application/xml"},
+    )
     if status in (201, 204, 200):
         return
-    if status == 412:
-        return  # Relation existiert bereits
-    raise RuntimeError(f"Tag zuweisen file={file_id} tag={tag_id}: HTTP {status}")
+    if status == 409:
+        return  # bereits zugewiesen (ownCloud/NC WebDAV)
+    raise RuntimeError(
+        f"Tag zuweisen file={file_id} tag={tag_id} ({tag_name}): HTTP {status} — "
+        f"{_http_error_hint(status, raw)}"
+    )
 
 
 def ensure_nc_pushed_table(con: sqlite3.Connection) -> None:
@@ -293,7 +343,7 @@ def push_image_tags(
     now = time.time()
     for tag in tags:
         tid = ensure_system_tag(cfg, tag_cache, tag)
-        assign_tag_to_file(cfg, fid, tid)
+        assign_tag_to_file(cfg, fid, tid, tag)
         con.execute(
             "INSERT OR REPLACE INTO nc_pushed(image_id, tag, pushed_at) VALUES(?,?,?)",
             (image_id, tag.lower(), now),
