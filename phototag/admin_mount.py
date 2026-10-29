@@ -7,12 +7,13 @@ from typing import Any
 
 from phototag.admin_browse import (
     BROWSE_FILTERS,
+    is_direct_child_of_folder,
     list_child_folders_fs,
     mount_accessible,
     normalize_folder,
     physical_path_for_logical,
 )
-from phototag.cli import IMAGE_EXTS, SKIP_DIRS, VIDEO_EXTS, encode_image, index_image, sha1_of
+from phototag.cli import IMAGE_EXTS, VIDEO_EXTS, encode_image, index_image, sha1_of
 from phototag.config import scan_root
 from phototag.nextcloud_sync import nc_dav_relative_path
 from phototag.review_queue import normalize_chosen_tags, proposed_tags_from_row
@@ -33,12 +34,25 @@ def physical_file_path(nc_rel: str) -> Path:
     ).name
 
 
-def find_image_by_nc_rel(con: sqlite3.Connection, nc_rel: str) -> sqlite3.Row | None:
+def build_nc_rel_index(con: sqlite3.Connection) -> dict[str, sqlite3.Row]:
+    """One pass over images — O(n) lookup by NC path for browse overlays."""
+    idx: dict[str, sqlite3.Row] = {}
+    for row in con.execute("SELECT * FROM images"):
+        key = nc_dav_relative_path(row["root"], row["path"])
+        idx[key] = row
+    return idx
+
+
+def find_image_by_nc_rel(
+    con: sqlite3.Connection,
+    nc_rel: str,
+    *,
+    nc_index: dict[str, sqlite3.Row] | None = None,
+) -> sqlite3.Row | None:
     nc_rel = nc_rel.replace("\\", "/").lstrip("/")
-    for row in con.execute("SELECT * FROM images").fetchall():
-        if nc_dav_relative_path(row["root"], row["path"]) == nc_rel:
-            return row
-    return None
+    if nc_index is None:
+        nc_index = build_nc_rel_index(con)
+    return nc_index.get(nc_rel)
 
 
 def list_media_files_on_mount(logical_folder: str) -> list[str]:
@@ -95,12 +109,12 @@ def _tags_for_row(con: sqlite3.Connection, row: sqlite3.Row | None, allowed: set
     return []
 
 
-def mount_entry_to_api(
-    con: sqlite3.Connection, nc_rel: str, allowed: set[str], filter_key: str
-) -> dict[str, Any] | None:
-    row = find_image_by_nc_rel(con, nc_rel)
-    if not _row_matches_filter(row, filter_key):
-        return None
+def _mount_entry_from_row(
+    con: sqlite3.Connection,
+    nc_rel: str,
+    row: sqlite3.Row | None,
+    allowed: set[str],
+) -> dict[str, Any]:
     try:
         physical = physical_file_path(nc_rel)
         kind = "video" if physical.suffix.lower() in VIDEO_EXTS else "image"
@@ -132,6 +146,39 @@ def mount_entry_to_api(
     }
 
 
+def mount_entry_to_api(
+    con: sqlite3.Connection,
+    nc_rel: str,
+    allowed: set[str],
+    filter_key: str,
+    *,
+    nc_index: dict[str, sqlite3.Row] | None = None,
+) -> dict[str, Any] | None:
+    row = find_image_by_nc_rel(con, nc_rel, nc_index=nc_index)
+    if not _row_matches_filter(row, filter_key):
+        return None
+    return _mount_entry_from_row(con, nc_rel, row, allowed)
+
+
+def _db_nc_paths_in_folder(
+    con: sqlite3.Connection,
+    logical_folder: str,
+    filter_key: str,
+) -> list[str]:
+    """Indexed rows in this folder matching status filter — no mount walk."""
+    from phototag.admin_browse import _filter_clause
+
+    logical_folder = normalize_folder(logical_folder)
+    extra, params = _filter_clause(filter_key)
+    rows = con.execute(f"SELECT * FROM images WHERE ({extra}) ORDER BY path", params).fetchall()
+    out: list[str] = []
+    for row in rows:
+        if not is_direct_child_of_folder(row["root"], row["path"], logical_folder):
+            continue
+        out.append(nc_dav_relative_path(row["root"], row["path"]))
+    return out
+
+
 def list_mount_browse_items(
     con: sqlite3.Connection,
     logical_folder: str,
@@ -142,12 +189,23 @@ def list_mount_browse_items(
     offset: int = 0,
 ) -> tuple[list[dict[str, Any]], int]:
     filter_key = filter_key if filter_key in BROWSE_FILTERS else "all"
-    paths = list_media_files_on_mount(logical_folder)
+    logical_folder = normalize_folder(logical_folder)
+    nc_index = build_nc_rel_index(con)
     items: list[dict[str, Any]] = []
-    for nc_rel in paths:
-        entry = mount_entry_to_api(con, nc_rel, allowed, filter_key)
-        if entry:
-            items.append(entry)
+
+    if filter_key in ("tagged", "review"):
+        for nc_rel in _db_nc_paths_in_folder(con, logical_folder, filter_key):
+            row = nc_index.get(nc_rel)
+            if not row:
+                continue
+            items.append(_mount_entry_from_row(con, nc_rel, row, allowed))
+    else:
+        for nc_rel in list_media_files_on_mount(logical_folder):
+            row = nc_index.get(nc_rel)
+            if not _row_matches_filter(row, filter_key):
+                continue
+            items.append(_mount_entry_from_row(con, nc_rel, row, allowed))
+
     total = len(items)
     lim = max(1, min(200, int(limit)))
     off = max(0, int(offset))

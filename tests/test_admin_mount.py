@@ -55,6 +55,22 @@ def test_mount_browse_merge_db(mount_env, monkeypatch):
     assert "outdoor" in tagged["tags"]
 
 
+def test_tagged_filter_uses_db_not_mount_walk(mount_env):
+    con = connect()
+    root = str(Path(mount_env).resolve())
+    folder = Path(mount_env) / "Zum Löschen" / "Test"
+    for i in range(120):
+        (folder / f"noise_{i:03d}.jpg").write_bytes(b"x")
+    con.execute(
+        "INSERT INTO images(root,path,folder,kind,status) VALUES(?,?,?,?,?)",
+        (root, "Zum Löschen/Test/a.jpg", "Zum Löschen/Test", "image", "tagged"),
+    )
+    con.commit()
+    items, total = list_mount_browse_items(con, "Zum Löschen/Test", "tagged", {"outdoor"})
+    assert total == 1
+    assert items[0]["nc_path"].endswith("a.jpg")
+
+
 def test_save_mount_tags(mount_env, monkeypatch):
     monkeypatch.setenv("PHOTOTAG_NC_DAV_PREFIX", "OF")
     con = connect()

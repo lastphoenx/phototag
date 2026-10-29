@@ -18,5 +18,24 @@ black_and_white: Schwarzweiss oder stark entsättigt
 
 # --- Kleidung (Beispiele — in lokaler categories.txt ergänzen) ---
 kleid: Kleid sichtbar getragen
-rock: Rock (auch Minirock, wenn nicht minirock)
-minirock: kurzer Rock oberhalb Knie
+rock: Rock (Bleistift-/Midirock; siehe minirock)
+minirock: kurzer Rock deutlich oberhalb Knie
+skirt: Rock allgemein (wenn rock/minirock/kleid unklar)
+bikini: Bikini (OBerteil und Slip getrennt)
+swimwear: Badekleidung allgemein
+badeanzug: einteiliger Badeanzug
+badekleid: Badekleid / Swimsuit-Kleid
+onepiece_swim: Einteiler Bade-Body
+top: Oberteil/Top (Alltag, nicht nur BH)
+tanktop: Tanktop, Trägertop, Crop-Top
+sport_bra: Sport-BH sichtbar getragen
+hotpants: Hotpants, sehr kurze Shorts
+shorts: Shorts (nicht hotpants)
+leggings: Leggings, enge Sporthose
+jeans: Jeans sichtbar
+jacket: Jacke, Blazer, Mantel im Bild
+hosiery: Strumpfhose, Netzstrümpfe, Overknees
+heels: High Heels sichtbar
+barefoot: barfuss
+clothed: klar bekleidet (Fallback wenn kein Detail-Tag passt)
+lingerie: Unterwäsche oder Dessous (nicht Bikini im Wasser)

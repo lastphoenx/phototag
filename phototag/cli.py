@@ -93,6 +93,8 @@ CREATE TABLE IF NOT EXISTS tags(
   PRIMARY KEY(image_id, tag)
 );
 CREATE INDEX IF NOT EXISTS tags_tag ON tags(tag);
+CREATE INDEX IF NOT EXISTS images_status ON images(status);
+CREATE INDEX IF NOT EXISTS images_folder_status ON images(folder, status);
 """
 
 
@@ -100,6 +102,7 @@ def connect() -> sqlite3.Connection:
     con = sqlite3.connect(db_path())
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
+    con.execute("PRAGMA journal_mode=WAL")
     con.executescript(SCHEMA)
     con.execute("CREATE INDEX IF NOT EXISTS images_folder ON images(folder)")
     cols = {r[1] for r in con.execute("PRAGMA table_info(images)")}

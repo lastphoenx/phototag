@@ -2,6 +2,11 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.4
+
+- **Browse-Filter «Mit Tags» / «In Review»:** DB-first (Status-Index), kein Mount-Durchlauf mit Full-Table-Scan pro Datei — Ordner mit vielen ungetaggten Dateien lädt nur getaggte/review-Einträge schnell.
+- **SQLite:** WAL + Indizes `images(status)`, `images(folder, status)`; für Zehntausende Medien ausreichend (Engpass war O(n×m)-Lookup, nicht SQLite an sich).
+
 ## 0.5.3
 
 - **Tag-UI:** Eingabe vor Speichern/Freigabe übernehmen; mehrere Tags (Komma/Leerzeichen); klickbare Vorschläge aus `/api/tags` (categories.txt). Review-**Speichern** nutzt dieselbe Freigabe-API wie **Freigeben** (inkl. push-nc).
