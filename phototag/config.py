@@ -116,11 +116,41 @@ def nc_tls_ca_file() -> str:
 
 
 def admin_token() -> str:
+    """Optional API-Token (Header); Login primär über User/Passwort."""
     return os.getenv("PHOTOTAG_ADMIN_TOKEN", "").strip()
 
 
+def admin_user() -> str:
+    return os.getenv("PHOTOTAG_ADMIN_USER", "").strip()
+
+
+def admin_password() -> str:
+    return os.getenv("PHOTOTAG_ADMIN_PASSWORD", "").strip()
+
+
+def admin_session_secret() -> str:
+    explicit = os.getenv("PHOTOTAG_ADMIN_SESSION_SECRET", "").strip()
+    if explicit:
+        return explicit
+    tok = admin_token()
+    if tok:
+        return tok
+    return "phototag-admin-change-me"
+
+
+def validate_admin_auth_config() -> None:
+    user = admin_user()
+    pw = admin_password()
+    if not user or not pw:
+        raise RuntimeError(
+            "Admin-Login fehlt: PHOTOTAG_ADMIN_USER und PHOTOTAG_ADMIN_PASSWORD "
+            "in phototag.env setzen (nur auf dem Server, nicht committen)."
+        )
+
+
 def admin_bind() -> str:
-    return os.getenv("PHOTOTAG_ADMIN_BIND", "127.0.0.1").strip() or "127.0.0.1"
+    """Default 0.0.0.0 = LAN-Zugriff (nur mit Login); 127.0.0.1 für reine Konsole."""
+    return os.getenv("PHOTOTAG_ADMIN_BIND", "0.0.0.0").strip() or "0.0.0.0"
 
 
 def admin_port() -> int:

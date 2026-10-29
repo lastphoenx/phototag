@@ -1,10 +1,5 @@
 (function () {
-  const TOKEN_KEY = "phototag_admin_token";
   let tagCatalog = [];
-
-  function token() {
-    return sessionStorage.getItem(TOKEN_KEY) || "";
-  }
 
   function setStatus(msg, isErr) {
     const el = document.getElementById("statusLine");
@@ -12,21 +7,17 @@
     el.className = "status" + (isErr ? " err" : "");
   }
 
-  function authHeaders(json) {
-    const h = { "X-Phototag-Token": token() };
-    if (json) h["Content-Type"] = "application/json";
-    return h;
-  }
-
   async function api(path, opts) {
+    const headers = { ...(opts && opts.headers) };
+    if (opts && opts.body) headers["Content-Type"] = "application/json";
     const res = await fetch(path, {
       ...opts,
-      headers: { ...authHeaders(opts && opts.body), ...(opts && opts.headers) },
+      credentials: "same-origin",
+      headers,
     });
     if (res.status === 401) {
-      sessionStorage.removeItem(TOKEN_KEY);
-      showLogin();
-      throw new Error("Token ungültig");
+      window.location.href = "/login";
+      throw new Error("Nicht angemeldet");
     }
     const data = res.headers.get("content-type")?.includes("json") ? await res.json() : null;
     if (!res.ok) {
@@ -36,21 +27,14 @@
   }
 
   async function loadThumb(img, id) {
-    const res = await fetch("/api/images/" + id + "/thumb", {
-      headers: authHeaders(false),
-    });
+    const res = await fetch("/api/images/" + id + "/thumb", { credentials: "same-origin" });
+    if (res.status === 401) {
+      window.location.href = "/login";
+      return;
+    }
     if (!res.ok) return;
     const blob = await res.blob();
     img.src = URL.createObjectURL(blob);
-  }
-
-  function showLogin() {
-    document.getElementById("loginPanel").classList.remove("hidden");
-    document.getElementById("queue").innerHTML = "";
-  }
-
-  function hideLogin() {
-    document.getElementById("loginPanel").classList.add("hidden");
   }
 
   function renderTagEditor(container, initialTags, allowed) {
@@ -68,7 +52,6 @@
         s.type = "button";
         s.className = "tag removable";
         s.textContent = t + " ×";
-        s.title = "Entfernen";
         s.onclick = () => {
           state.delete(t);
           redraw();
@@ -133,8 +116,7 @@
       (item.age_status || "?") +
       (item.sanitize_flags && item.sanitize_flags.length
         ? "  ·  flags: " + item.sanitize_flags.join(", ")
-        : "") +
-      (item.error ? "  ·  " + item.error : "");
+        : "");
 
     const capLabel = document.createElement("label");
     capLabel.textContent = "Caption";
@@ -224,18 +206,5 @@
   document.getElementById("reloadBtn").onclick = () =>
     loadQueue().catch((e) => setStatus(e.message, true));
 
-  document.getElementById("loginBtn").onclick = () => {
-    const v = document.getElementById("tokenInput").value.trim();
-    if (!v) return;
-    sessionStorage.setItem(TOKEN_KEY, v);
-    hideLogin();
-    loadQueue().catch((e) => setStatus(e.message, true));
-  };
-
-  if (!token()) {
-    showLogin();
-  } else {
-    hideLogin();
-    loadQueue().catch((e) => setStatus(e.message, true));
-  }
+  loadQueue().catch((e) => setStatus(e.message, true));
 })();

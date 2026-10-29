@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.3.26
+
+- **Admin-UI:** Login mit **`PHOTOTAG_ADMIN_USER` / `PHOTOTAG_ADMIN_PASSWORD`** (Session-Cookie), Standard-**`BIND=0.0.0.0`** für LAN ohne SSH. Optional **`PHOTOTAG_ADMIN_TOKEN`** nur noch für API-Header. 2FA über Homelab-Reverse-Proxy (Doku privat).
+
 ## 0.3.25
 
 - **Review:** `caption` wird auch bei `status=review` gespeichert; `phototag review --backfill-captions` für alte Zeilen.

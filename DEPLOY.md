@@ -63,16 +63,24 @@ Erster Tag-Test: kleines Limit, `-v` optional.
 
 ### Admin-UI (`phototag serve`)
 
-Lokal auf dem CT, **kein CDN** — CSS/JS liegen im Python-Paket.
+CSS/JS im Python-Paket (kein CDN). **Kein SSH nötig** — CT per `pct enter`, im LAN per Browser.
 
 ```bash
-pip install -e ".[admin]"    # einmalig nach Update
-# phototag.env: PHOTOTAG_ADMIN_TOKEN=<lang>, optional BIND/PORT
+pip install -e ".[admin]"
+# phototag.env (Server):
+#   PHOTOTAG_ADMIN_USER=...
+#   PHOTOTAG_ADMIN_PASSWORD=...
+#   PHOTOTAG_ADMIN_BIND=0.0.0.0
+#   PHOTOTAG_ADMIN_PORT=8765
 set -a && source phototag.env && set +a
-phototag serve               # http://127.0.0.1:8765
+phototag serve
 ```
 
-Im Browser: Token aus `phototag.env` einmal eingeben (sessionStorage). Tags editieren, Caption anpassen, **Freigeben** (+ optional push-nc). Nur über **localhost** oder nginx mit Auth erreichbar machen — Token nicht committen.
+Im Browser: `http://<CT-LAN-IP>:8765` → Login → Review freigeben (optional push-nc).
+
+**2FA:** phototag liefert nur User/Passwort-Session. Zusätzliche 2FA wie bei anderen Homelab-Apps über **Reverse-Proxy** (nginx + SSO/TOTP) davor — Konfiguration nur in privatem `doku/`, nicht im GitHub-Repo.
+
+**Hintergrund:** `nohup phototag serve >>/var/log/phototag-admin.log 2>&1 &` oder systemd-Vorlage lokal auf dem CT.
 
 ## 5. Nacht-Lauf (optional, noch manuell aktivieren)
 

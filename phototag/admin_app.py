@@ -1,9 +1,18 @@
 """Local review admin (Flask). Static assets ship in-repo — no CDN."""
 from __future__ import annotations
 
+import secrets
 from pathlib import Path
 
-from phototag.config import admin_bind, admin_port, admin_token
+from phototag.config import (
+    admin_bind,
+    admin_password,
+    admin_port,
+    admin_session_secret,
+    admin_token,
+    admin_user,
+    validate_admin_auth_config,
+)
 from phototag.review_queue import approve_image, list_review_rows, row_to_api_dict, skip_review
 
 _PKG = Path(__file__).resolve().parent
@@ -13,19 +22,23 @@ _TEMPLATES = _PKG / "templates" / "admin"
 
 def create_app():
     try:
-        from flask import Flask, abort, jsonify, render_template, request
+        from flask import (
+            Flask,
+            abort,
+            jsonify,
+            redirect,
+            render_template,
+            request,
+            session,
+            url_for,
+        )
     except ImportError as exc:
         raise RuntimeError(
             'Flask fehlt — installieren: pip install -e ".[admin]" '
             "(oder pip install flask)"
         ) from exc
 
-    token = admin_token()
-    if not token:
-        raise RuntimeError(
-            "PHOTOTAG_ADMIN_TOKEN fehlt — setze ein langes Geheimnis in phototag.env "
-            "(Admin-UI startet nicht ohne Token)."
-        )
+    validate_admin_auth_config()
 
     app = Flask(
         __name__,
@@ -33,14 +46,66 @@ def create_app():
         static_url_path="/static",
         template_folder=str(_TEMPLATES),
     )
+    app.secret_key = admin_session_secret()
+    app.config.update(
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+    )
 
-    def _auth() -> None:
-        if request.headers.get("X-Phototag-Token") == token:
+    def _logged_in() -> bool:
+        return bool(session.get("admin"))
+
+    def _check_api_auth() -> None:
+        if _logged_in():
+            return
+        tok = admin_token()
+        if tok and request.headers.get("X-Phototag-Token") == tok:
             return
         auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer ") and auth[7:] == token:
+        if tok and auth.startswith("Bearer ") and auth[7:] == tok:
             return
         abort(401)
+
+    @app.before_request
+    def _guard():
+        if request.endpoint in (None, "static", "login", "login_post"):
+            return
+        if request.path.startswith("/api/"):
+            if not _logged_in():
+                _check_api_auth()
+            return
+        if not _logged_in():
+            return redirect(url_for("login"))
+
+    @app.get("/login")
+    def login():
+        if _logged_in():
+            return redirect(url_for("index"))
+        err = request.args.get("err", "")
+        return render_template("login.html", error=err)
+
+    @app.post("/login")
+    def login_post():
+        user = (request.form.get("username") or "").strip()
+        pw = request.form.get("password") or ""
+        expected_user = admin_user()
+        expected_pw = admin_password()
+        if (
+            expected_user
+            and expected_pw
+            and secrets.compare_digest(user, expected_user)
+            and secrets.compare_digest(pw, expected_pw)
+        ):
+            session.clear()
+            session["admin"] = True
+            session.permanent = False
+            return redirect(url_for("index"))
+        return redirect(url_for("login", err="1"))
+
+    @app.post("/logout")
+    def logout():
+        session.clear()
+        return redirect(url_for("login"))
 
     @app.get("/")
     def index():
@@ -48,14 +113,14 @@ def create_app():
 
     @app.get("/api/tags")
     def api_tags():
-        _auth()
+        _check_api_auth()
         from phototag.cli import load_categories
 
         return jsonify({"tags": [t for t, _ in load_categories()]})
 
     @app.get("/api/review")
     def api_review_list():
-        _auth()
+        _check_api_auth()
         from phototag.cli import connect, load_categories
 
         con = connect()
@@ -65,7 +130,7 @@ def create_app():
 
     @app.get("/api/images/<int:image_id>/thumb")
     def api_thumb(image_id: int):
-        _auth()
+        _check_api_auth()
         from phototag.cli import connect
 
         con = connect()
@@ -76,7 +141,7 @@ def create_app():
 
     @app.post("/api/review/<int:image_id>/approve")
     def api_approve(image_id: int):
-        _auth()
+        _check_api_auth()
         from phototag.cli import connect
 
         push = request.args.get("push", "0") in ("1", "true", "yes")
@@ -100,7 +165,7 @@ def create_app():
 
     @app.post("/api/review/<int:image_id>/skip")
     def api_skip(image_id: int):
-        _auth()
+        _check_api_auth()
         from phototag.cli import connect
 
         con = connect()
@@ -115,4 +180,7 @@ def create_app():
 
 def run_server() -> None:
     app = create_app()
-    app.run(host=admin_bind(), port=admin_port(), debug=False)
+    host = admin_bind()
+    port = admin_port()
+    print(f"phototag admin: http://{host}:{port}/  (Login: PHOTOTAG_ADMIN_USER)", flush=True)
+    app.run(host=host, port=port, debug=False)
