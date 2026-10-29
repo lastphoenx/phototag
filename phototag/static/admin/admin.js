@@ -42,6 +42,20 @@
     img.src = URL.createObjectURL(blob);
   }
 
+  async function loadThumbNc(img, ncPath) {
+    const res = await fetch(
+      "/api/browse/thumb?nc_path=" + encodeURIComponent(ncPath),
+      { credentials: "same-origin" }
+    );
+    if (res.status === 401) {
+      window.location.href = "/login";
+      return;
+    }
+    if (!res.ok) return;
+    const blob = await res.blob();
+    img.src = URL.createObjectURL(blob);
+  }
+
   function renderTagEditor(container, initialTags, allowed, readOnly) {
     if (readOnly) {
       const chips = document.createElement("div");
@@ -109,6 +123,112 @@
     wrap.append(chips, addRow);
     container.appendChild(wrap);
     return () => [...state];
+  }
+
+  function renderMountItem(item) {
+    const inReview = item.in_review;
+    const card = document.createElement("article");
+    card.className = "card";
+    if (item.id) card.dataset.id = item.id;
+    card.dataset.ncPath = item.nc_path;
+
+    const img = document.createElement("img");
+    img.alt = item.nc_path;
+    loadThumbNc(img, item.nc_path);
+
+    const body = document.createElement("div");
+    body.className = "card-body";
+
+    const path = document.createElement("div");
+    path.className = "path";
+    const idPart = item.id ? "id=" + item.id + "  ·  " : "";
+    path.textContent = item.nc_path + "  ·  " + idPart + item.kind;
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const badge = document.createElement("span");
+    const st = item.status || "unindexed";
+    badge.className =
+      "status-badge" +
+      (inReview ? " review" : st === "tagged" ? " tagged" : "");
+    badge.textContent = st;
+    meta.append(badge);
+    if (item.age_status) {
+      meta.append(document.createTextNode("  age_status: " + item.age_status));
+    }
+    if (item.sanitize_flags && item.sanitize_flags.length) {
+      meta.append(document.createTextNode("  ·  flags: " + item.sanitize_flags.join(", ")));
+    }
+
+    const capLabel = document.createElement("label");
+    capLabel.textContent = "Caption";
+    const capArea = document.createElement("textarea");
+    capArea.className = "caption-edit";
+    capArea.rows = 5;
+    capArea.value = item.caption || "";
+
+    const tagBlock = document.createElement("div");
+    const tagList = item.tags || item.proposed_tags || [];
+    const getTags = renderTagEditor(tagBlock, tagList, tagCatalog, false);
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+
+    const saveBtn = document.createElement("button");
+    saveBtn.className = "ok";
+    saveBtn.textContent = "Speichern";
+    saveBtn.onclick = async () => {
+      try {
+        const tags = getTags();
+        if (!tags.length) {
+          setStatus("Mindestens ein Tag nötig", true);
+          return;
+        }
+        const push = document.getElementById("pushAfter").checked;
+        const res = await api("/api/browse/save?push=" + (push ? "1" : "0"), {
+          method: "POST",
+          body: JSON.stringify({
+            nc_path: item.nc_path,
+            tags,
+            caption: capArea.value.trim(),
+          }),
+        });
+        badge.textContent = "tagged";
+        if (res.id) {
+          card.dataset.id = res.id;
+          item.id = res.id;
+        }
+        setStatus(
+          (push ? "DB + NC: " : "DB: ") +
+            item.nc_path +
+            (res.pushed_tags ? " (" + res.pushed_tags + " Tags NC)" : "")
+        );
+      } catch (e) {
+        setStatus(String(e.message || e), true);
+      }
+    };
+    actions.append(saveBtn);
+
+    if (inReview && item.id) {
+      const skipBtn = document.createElement("button");
+      skipBtn.className = "warn";
+      skipBtn.textContent = "Review entfernen";
+      skipBtn.onclick = async () => {
+        if (!confirm("Aus Review entfernen (status=new)?")) return;
+        try {
+          await api("/api/review/" + item.id + "/skip", { method: "POST" });
+          badge.textContent = "new";
+          item.in_review = false;
+        } catch (e) {
+          setStatus(String(e.message || e), true);
+        }
+      };
+      actions.append(skipBtn);
+    }
+
+    body.append(path, meta, capLabel, capArea, tagBlock, actions);
+    card.append(img, body);
+    return card;
   }
 
   function renderItem(item) {
@@ -308,24 +428,24 @@
     const where = browseFolder ? browseFolder + "/" : "OF/";
     if (!data.items.length) {
       setStatus(
-        "Keine indexierten Dateien in " +
+        "Keine Mediendateien in " +
           where +
           " (Filter: " +
           filter +
-          "). In Unterordner wechseln oder: phototag scan auf PHOTOTAG_SCAN_ROOT."
+          "). Anderen Ordner wählen oder Mount prüfen."
       );
       return;
     }
-    data.items.forEach((item) => q.appendChild(renderItem(item)));
+    data.items.forEach((item) => q.appendChild(renderMountItem(item)));
     setStatus(
       data.total +
-        " Datei(en) in " +
+        " Datei(en) auf Mount in " +
         (browseFolder || "OF") +
         ", Filter «" +
         filter +
-        "» — " +
-        data.count +
-        " angezeigt."
+        "» — manuell taggen, Speichern schreibt DB" +
+        (document.getElementById("pushAfter").checked ? " + push-nc" : "") +
+        "."
     );
   }
 

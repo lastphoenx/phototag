@@ -16,12 +16,15 @@ from phototag.config import (
 )
 from phototag.review_queue import approve_image, list_review_rows, row_to_api_dict, skip_review
 from phototag.admin_browse import (
-    browse_row_to_api_dict,
-    list_browse_rows,
-    list_child_folders,
     mount_accessible,
     normalize_folder,
     resolve_images_root,
+)
+from phototag.admin_mount import (
+    list_child_folders_mount_only,
+    list_mount_browse_items,
+    save_mount_tags,
+    thumb_bytes_for_nc,
 )
 
 _PKG = Path(__file__).resolve().parent
@@ -143,7 +146,7 @@ def create_app():
         con = connect()
         root = resolve_images_root(con)
         parent = normalize_folder(request.args.get("folder", "") or "")
-        folders = list_child_folders(con, root, parent)
+        folders = list_child_folders_mount_only(con, root, parent)
         return jsonify(
             {
                 "folder": parent,
@@ -160,14 +163,16 @@ def create_app():
         from phototag.cli import connect, load_categories
 
         con = connect()
-        root = resolve_images_root(con)
         folder = normalize_folder(request.args.get("folder", "") or "")
         filter_key = (request.args.get("filter") or "all").strip().lower()
         limit = request.args.get("limit", 80, type=int)
         offset = request.args.get("offset", 0, type=int)
         allowed = {t for t, _ in load_categories()}
-        rows, total = list_browse_rows(con, folder, filter_key, limit=limit, offset=offset)
-        items = [browse_row_to_api_dict(con, r, allowed) for r in rows]
+        if not mount_accessible():
+            return jsonify({"ok": False, "error": "PHOTOTAG_SCAN_ROOT nicht lesbar (Mount?)"}), 503
+        items, total = list_mount_browse_items(
+            con, folder, filter_key, allowed, limit=limit, offset=offset
+        )
         return jsonify(
             {
                 "items": items,
@@ -175,8 +180,52 @@ def create_app():
                 "total": total,
                 "folder": folder,
                 "filter": filter_key,
+                "source": "mount",
             }
         )
+
+    @app.get("/api/browse/thumb")
+    def api_browse_thumb():
+        _check_api_auth()
+        from phototag.cli import connect
+
+        nc_path = (request.args.get("nc_path") or "").strip().lstrip("/")
+        if not nc_path:
+            abort(400)
+        con = connect()
+        blob = thumb_bytes_for_nc(con, nc_path)
+        if not blob:
+            abort(404)
+        return app.response_class(blob, mimetype="image/jpeg")
+
+    @app.post("/api/browse/save")
+    def api_browse_save():
+        _check_api_auth()
+        from phototag.cli import connect, load_categories
+
+        push = request.args.get("push", "0") in ("1", "true", "yes")
+        body = request.get_json(silent=True) or {}
+        nc_path = (body.get("nc_path") or "").strip().lstrip("/")
+        tags = body.get("tags")
+        caption = body.get("caption", "")
+        if not nc_path:
+            return jsonify({"ok": False, "error": "nc_path fehlt"}), 400
+        if not isinstance(tags, list):
+            return jsonify({"ok": False, "error": "tags muss Array sein"}), 400
+        con = connect()
+        allowed = {t for t, _ in load_categories()}
+        try:
+            result = save_mount_tags(
+                con,
+                nc_path,
+                tags=tags,
+                caption=str(caption),
+                push_nc=push,
+                allowed=allowed,
+            )
+        except (FileNotFoundError, ValueError, RuntimeError) as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify(result)
 
     @app.get("/api/images/<int:image_id>/thumb")
     def api_thumb(image_id: int):

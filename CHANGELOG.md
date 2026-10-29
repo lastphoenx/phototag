@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.4.0
+
+- **Admin-UI Mount-first:** Ordner und Dateien vom **rclone-Mount**; DB nur Anreicherung + **Speichern** (Index bei Bedarf, optional **push-nc**). Review-Queue unverändert separat.
+
 ## 0.3.32
 
 - **Admin-Browse:** Unterordner vom **Mount** (`PHOTOTAG_SCAN_ROOT`) plus DB — ganzer OF-Baum sichtbar; Dateien weiterhin nur wo **scan** indexiert hat. Bildliste über alle DB-`root`-Werte.

@@ -1,0 +1,260 @@
+"""Mount-first admin browse: filesystem listing + DB overlay on demand."""
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+from typing import Any
+
+from phototag.admin_browse import (
+    BROWSE_FILTERS,
+    list_child_folders_fs,
+    mount_accessible,
+    normalize_folder,
+    physical_path_for_logical,
+)
+from phototag.cli import IMAGE_EXTS, SKIP_DIRS, VIDEO_EXTS, encode_image, index_image, sha1_of
+from phototag.config import scan_root
+from phototag.nextcloud_sync import nc_dav_relative_path
+from phototag.review_queue import normalize_chosen_tags, proposed_tags_from_row
+
+MEDIA_EXTS = IMAGE_EXTS | VIDEO_EXTS
+
+
+def nc_rel_from_dir_file(logical_dir: str, filename: str) -> str:
+    d = normalize_folder(logical_dir)
+    name = filename.strip()
+    return f"{d}/{name}" if d else name
+
+
+def physical_file_path(nc_rel: str) -> Path:
+    nc_rel = nc_rel.replace("\\", "/").lstrip("/")
+    return physical_path_for_logical(str(Path(nc_rel).parent.as_posix() if "/" in nc_rel else "")) / Path(
+        nc_rel
+    ).name
+
+
+def find_image_by_nc_rel(con: sqlite3.Connection, nc_rel: str) -> sqlite3.Row | None:
+    nc_rel = nc_rel.replace("\\", "/").lstrip("/")
+    for row in con.execute("SELECT * FROM images").fetchall():
+        if nc_dav_relative_path(row["root"], row["path"]) == nc_rel:
+            return row
+    return None
+
+
+def list_media_files_on_mount(logical_folder: str) -> list[str]:
+    """NC-relative paths of media files directly in this folder (from mount)."""
+    try:
+        physical = physical_path_for_logical(logical_folder)
+    except (ValueError, OSError):
+        return []
+    if not physical.is_dir():
+        return []
+    out: list[str] = []
+    for entry in sorted(physical.iterdir(), key=lambda p: p.name.lower()):
+        if not entry.is_file():
+            continue
+        if entry.suffix.lower() not in MEDIA_EXTS:
+            continue
+        out.append(nc_rel_from_dir_file(logical_folder, entry.name))
+    return out
+
+
+def list_child_folders_mount_only(con: sqlite3.Connection, _root: str, parent: str) -> list[str]:
+    del con, _root
+    return list_child_folders_fs(parent)
+
+
+def _row_matches_filter(row: sqlite3.Row | None, filter_key: str) -> bool:
+    if filter_key == "all":
+        return True
+    if row is None:
+        return filter_key == "untagged"
+    st = row["status"]
+    if filter_key == "untagged":
+        return st in ("new", "error")
+    if filter_key == "review":
+        return st == "review"
+    if filter_key == "tagged":
+        return st == "tagged"
+    return True
+
+
+def _tags_for_row(con: sqlite3.Connection, row: sqlite3.Row | None, allowed: set[str]) -> list[str]:
+    if not row:
+        return []
+    if row["status"] == "tagged":
+        return [
+            r["tag"]
+            for r in con.execute(
+                "SELECT tag FROM tags WHERE image_id=? ORDER BY tag", (row["id"],)
+            ).fetchall()
+        ]
+    if row["status"] == "review":
+        tags, _, _ = proposed_tags_from_row(row, allowed)
+        return tags
+    return []
+
+
+def mount_entry_to_api(
+    con: sqlite3.Connection, nc_rel: str, allowed: set[str], filter_key: str
+) -> dict[str, Any] | None:
+    row = find_image_by_nc_rel(con, nc_rel)
+    if not _row_matches_filter(row, filter_key):
+        return None
+    try:
+        physical = physical_file_path(nc_rel)
+        kind = "video" if physical.suffix.lower() in VIDEO_EXTS else "image"
+    except (ValueError, OSError):
+        kind = row["kind"] if row else "image"
+    tags = _tags_for_row(con, row, allowed)
+    cap = (row["caption"] or "") if row else ""
+    flags: list[str] = []
+    if row and row["status"] == "review":
+        if not cap:
+            _, cap_from_raw, _ = proposed_tags_from_row(row, allowed)
+            cap = cap_from_raw
+        _, _, flags = proposed_tags_from_row(row, allowed)
+    status = row["status"] if row else "unindexed"
+    return {
+        "nc_path": nc_rel,
+        "id": row["id"] if row else None,
+        "indexed": row is not None,
+        "path": row["path"] if row else nc_rel,
+        "kind": kind,
+        "status": status,
+        "age_status": row["age_status"] if row else None,
+        "caption": cap,
+        "tags": tags,
+        "proposed_tags": tags,
+        "sanitize_flags": flags,
+        "in_review": bool(row and row["status"] == "review"),
+        "source": "mount",
+    }
+
+
+def list_mount_browse_items(
+    con: sqlite3.Connection,
+    logical_folder: str,
+    filter_key: str,
+    allowed: set[str],
+    *,
+    limit: int = 80,
+    offset: int = 0,
+) -> tuple[list[dict[str, Any]], int]:
+    filter_key = filter_key if filter_key in BROWSE_FILTERS else "all"
+    paths = list_media_files_on_mount(logical_folder)
+    items: list[dict[str, Any]] = []
+    for nc_rel in paths:
+        entry = mount_entry_to_api(con, nc_rel, allowed, filter_key)
+        if entry:
+            items.append(entry)
+    total = len(items)
+    lim = max(1, min(200, int(limit)))
+    off = max(0, int(offset))
+    return items[off : off + lim], total
+
+
+def ensure_indexed_from_mount(con: sqlite3.Connection, nc_rel: str) -> sqlite3.Row:
+    row = find_image_by_nc_rel(con, nc_rel)
+    if row:
+        return row
+    physical = physical_file_path(nc_rel)
+    if not physical.is_file():
+        raise FileNotFoundError(f"Datei fehlt auf Mount: {nc_rel}")
+    root = str(Path(scan_root()).resolve())
+    rel = nc_rel.replace("\\", "/").lstrip("/")
+    folder = Path(rel).parent.as_posix()
+    folder = "" if folder == "." else folder
+    ext = physical.suffix.lower()
+    kind = "video" if ext in VIDEO_EXTS else "image"
+    st = physical.stat()
+    digest = sha1_of(physical)
+    thumb: bytes | None = None
+    if kind == "image":
+        try:
+            thumb = encode_image(physical)["thumb"]
+        except OSError:
+            thumb = None
+    con.execute(
+        "INSERT INTO images(root,path,folder,kind,size,mtime,sha1,thumb,status) "
+        "VALUES(?,?,?,?,?,?,?,?,'new')",
+        (root, rel, folder, kind, st.st_size, st.st_mtime, digest, thumb),
+    )
+    con.commit()
+    row = find_image_by_nc_rel(con, nc_rel)
+    if not row:
+        raise RuntimeError(f"Index fehlgeschlagen: {nc_rel}")
+    return row
+
+
+def save_mount_tags(
+    con: sqlite3.Connection,
+    nc_rel: str,
+    *,
+    tags: list[str],
+    caption: str,
+    push_nc: bool = False,
+    allowed: set[str],
+) -> dict[str, Any]:
+    row = ensure_indexed_from_mount(con, nc_rel)
+    image_id = row["id"]
+    final_tags = normalize_chosen_tags(tags, allowed)
+    if not final_tags:
+        raise ValueError("Mindestens ein gültiger Tag (categories.txt)")
+    final_caption = (caption or "")[:160]
+    con.execute("DELETE FROM nc_pushed WHERE image_id=?", (image_id,))
+    con.execute("DELETE FROM tags WHERE image_id=?", (image_id,))
+    con.executemany("INSERT INTO tags VALUES(?,?)", [(image_id, t) for t in final_tags])
+    con.execute(
+        "UPDATE images SET status='tagged', caption=?, error=NULL WHERE id=?",
+        (final_caption, image_id),
+    )
+    index_image(con, image_id)
+    con.commit()
+    pushed = 0
+    if push_nc:
+        from phototag.nextcloud_sync import load_nc_config, push_image_tags
+
+        cfg = load_nc_config()
+        tag_cache: dict[str, int] = {}
+        pushed = push_image_tags(
+            con,
+            cfg,
+            image_id=image_id,
+            path=nc_dav_relative_path(row["root"], row["path"]),
+            tags=final_tags,
+            tag_cache=tag_cache,
+            dry_run=False,
+        )
+        con.commit()
+    return {
+        "ok": True,
+        "id": image_id,
+        "nc_path": nc_rel,
+        "tags": final_tags,
+        "caption": final_caption,
+        "pushed_tags": pushed,
+    }
+
+
+def thumb_bytes_for_nc(con: sqlite3.Connection, nc_rel: str) -> bytes | None:
+    row = find_image_by_nc_rel(con, nc_rel)
+    if row and row["thumb"]:
+        return row["thumb"]
+    physical = physical_file_path(nc_rel)
+    if not physical.is_file():
+        return None
+    ext = physical.suffix.lower()
+    if ext in IMAGE_EXTS:
+        try:
+            return encode_image(physical)["thumb"]
+        except OSError:
+            return None
+    if ext in VIDEO_EXTS:
+        try:
+            from phototag.cli import encode_video
+
+            return encode_video(physical)["thumb"]
+        except (OSError, ValueError):
+            return None
+    return None

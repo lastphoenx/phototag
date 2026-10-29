@@ -120,6 +120,8 @@ Hash erzeugen (einmal auf dem CT):
 
 **Später HTTPS/Domain:** gleicher Proxy (TLS-Termination), Ziel upstream `http://<phototag-CT-IP>:8765` — keine Änderung am Python-Code nötig.
 
+**Ordner durchsuchen (ab 0.4.0):** Navigation liest **`PHOTOTAG_SCAN_ROOT`** (rclone-Mount). Pro Datei werden DB-Daten (Tags, Caption, Status) **mitgeladen**, falls vorhanden. **Speichern** schreibt Tags/Caption in die DB (legt Eintrag an, falls nötig); mit Häkchen **push-nc** zusätzlich Schlagworte nach Nextcloud. Mount muss laufen (`phototag-rclone-mount.service`).
+
 ## 5. Nacht-Lauf (optional, noch manuell aktivieren)
 
 **Im Repo:** nur Vorlagen — **auf CT 142 ist kein systemd-Timer automatisch installiert**, bis du `cp` + `enable` ausführst. Prüfen: `systemctl status phototag-night.timer` (wenn „not found“ → noch nicht eingerichtet).
