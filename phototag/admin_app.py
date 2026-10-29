@@ -169,11 +169,18 @@ def create_app():
         filter_key = (request.args.get("filter") or "all").strip().lower()
         limit = request.args.get("limit", 80, type=int)
         offset = request.args.get("offset", 0, type=int)
+        recursive = request.args.get("recursive", "0") in ("1", "true", "yes")
         allowed = {t for t, _ in load_categories()}
         if not mount_accessible():
             return jsonify({"ok": False, "error": "PHOTOTAG_SCAN_ROOT nicht lesbar (Mount?)"}), 503
         items, total = list_mount_browse_items(
-            con, folder, filter_key, allowed, limit=limit, offset=offset
+            con,
+            folder,
+            filter_key,
+            allowed,
+            limit=limit,
+            offset=offset,
+            recursive=recursive,
         )
         return jsonify(
             {
@@ -182,6 +189,9 @@ def create_app():
                 "total": total,
                 "folder": folder,
                 "filter": filter_key,
+                "recursive": recursive,
+                "offset": max(0, int(offset)),
+                "limit": max(1, min(200, int(limit))),
                 "source": "mount",
             }
         )
@@ -252,6 +262,29 @@ def create_app():
         except (FileNotFoundError, RuntimeError, OSError) as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         return jsonify(result)
+
+    @app.get("/api/tag/jobs/preview")
+    def api_tag_jobs_preview():
+        _check_api_auth()
+        from phototag.cli import connect
+        from phototag.tag_jobs import preview_tag_job
+
+        folder = normalize_folder(request.args.get("folder", "") or "")
+        folders = [folder]
+        retag = request.args.get("retag", "0") in ("1", "true", "yes")
+        recursive = request.args.get("recursive", "1") not in ("0", "false", "no")
+        if not mount_accessible():
+            return jsonify(
+                {"ok": False, "error": "PHOTOTAG_SCAN_ROOT nicht lesbar — phototag-rclone-mount.service starten"},
+            ), 503
+        con = connect()
+        stats = preview_tag_job(
+            con,
+            folders=folders,
+            retag=retag,
+            recursive=recursive,
+        )
+        return jsonify({"ok": True, **stats})
 
     @app.post("/api/tag/jobs")
     def api_tag_jobs_create():

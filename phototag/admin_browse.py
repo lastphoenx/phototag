@@ -113,6 +113,45 @@ def is_direct_child_of_folder(images_root: str, rel_path: str, browse_folder: st
     return nc_parent_dir(images_root, rel_path) == normalize_folder(browse_folder)
 
 
+def is_under_browse_folder(images_root: str, rel_path: str, browse_folder: str) -> bool:
+    """True if file's NC parent is browse_folder or a descendant path."""
+    parent = nc_parent_dir(images_root, rel_path)
+    bf = normalize_folder(browse_folder)
+    if not bf:
+        return True
+    return parent == bf or parent.startswith(bf + "/")
+
+
+def collect_mount_media_nc_paths(folders: list[str], recursive: bool) -> list[str]:
+    """NC-relative media paths under folder(s) from PHOTOTAG_SCAN_ROOT."""
+    from phototag.admin_mount import MEDIA_EXTS, list_media_files_on_mount
+
+    base = Path(scan_root()).resolve()
+    out: list[str] = []
+    for folder in folders:
+        f = normalize_folder(folder)
+        if recursive:
+            try:
+                physical = physical_path_for_logical(f)
+            except (ValueError, OSError):
+                continue
+            if not physical.is_dir():
+                continue
+            for p in sorted(physical.rglob("*")):
+                if not p.is_file():
+                    continue
+                if p.suffix.lower() not in MEDIA_EXTS:
+                    continue
+                try:
+                    rel = p.relative_to(base).as_posix()
+                except ValueError:
+                    continue
+                out.append(rel)
+        else:
+            out.extend(list_media_files_on_mount(f))
+    return sorted(set(out))
+
+
 def _filter_clause(filter_key: str) -> tuple[str, list[Any]]:
     if filter_key == "review":
         return "status='review'", []

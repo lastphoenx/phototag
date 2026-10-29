@@ -2,6 +2,11 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.8
+
+- **Browse:** Filter **In Unterordnern** + **Pagination** (80 pro Seite) für alle Filter (Mit Tags / Ohne Tags / Review / Alle).
+- **Ordner KI-taggen:** Vorschau-Dialog mit Anzahl **wird getaggt** / **bereits getaggt übersprungen**; Job-Panel mit Pfadliste und **aktiver Datei**; sichtbare Karten im Job gelb/blau markiert (getaggte nicht im Job).
+
 ## 0.5.7
 
 - **Retag in der Web-UI:** Bereits **tagged** Dateien ohne `retag` lieferten Jobs mit **0 Dateien** (Backend überspringt sie absichtlich). Beim Klick **KI taggen** erscheint jetzt eine **Bestätigung**; danach wird `retag: true` gesendet. Checkbox **Neu taggen** neben dem Filter sichtbar; klarere Fehlermeldung wenn kein Lauf startet.

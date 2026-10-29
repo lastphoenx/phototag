@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 from phototag.cli import connect
-from phototag.tag_jobs import create_tag_job, get_tag_job, resolve_rows_for_spec
+from phototag.tag_jobs import create_tag_job, get_tag_job, preview_tag_job, resolve_rows_for_spec
 
 
 @pytest.fixture
@@ -79,3 +79,17 @@ def test_resolve_nc_path_retag_includes_tagged(env_db):
     rows = resolve_rows_for_spec(con, spec)
     assert len(rows) == 1
     assert rows[0]["status"] == "tagged"
+
+
+def test_preview_skips_tagged(env_db):
+    mount = env_db
+    con = connect()
+    con.execute(
+        "INSERT INTO images(root,path,folder,kind,status) VALUES(?,?,?,?,?)",
+        (str(mount), "sub/a.jpg", "sub", "image", "tagged"),
+    )
+    con.commit()
+    stats = preview_tag_job(con, folders=["sub"], retag=False, recursive=True)
+    assert stats["media_files"] == 1
+    assert stats["will_tag"] == 0
+    assert stats["skipped_tagged"] == 1

@@ -201,6 +201,32 @@ button.tag.removable:hover { border-color: var(--warn); }
 }
 .job-panel.hidden { display: none; }
 .job-panel strong { color: var(--text); }
+.job-panel .job-current { margin-top: 0.35rem; color: var(--accent); }
+.job-panel .job-err { margin-top: 0.35rem; color: var(--danger, #e55); }
+.job-panel .job-hint { margin: 0.4rem 0 0; font-size: 0.8rem; }
+.job-path-list {
+  margin: 0.45rem 0 0;
+  padding-left: 1.2rem;
+  max-height: 10rem;
+  overflow-y: auto;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+.job-path-list .job-path-done { color: var(--ok); text-decoration: line-through; }
+.job-path-list .job-path-active { color: var(--accent); font-weight: 600; }
+.job-path-list .job-path-pending { color: var(--muted); }
+.job-path-list .job-path-more { color: var(--muted); list-style: none; margin-left: -1.2rem; }
+.browse-pager {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  padding: 0.35rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+.browse-pager.hidden { display: none; }
+.browse-pager .pager-info { color: var(--muted); margin-right: 0.5rem; }
 #tagFolderBtn { font-size: 0.85rem; margin-left: 0.5rem; }
 .card.ki-queued {
   outline: 3px dashed #f0b429;

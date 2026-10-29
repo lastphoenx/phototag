@@ -11,15 +11,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from phototag.admin_browse import collect_mount_media_nc_paths, normalize_folder
 from phototag.admin_mount import (
-    MEDIA_EXTS,
     ensure_indexed_from_mount,
     find_image_by_nc_rel,
-    list_media_files_on_mount,
-    normalize_folder,
-    physical_path_for_logical,
 )
-from phototag.config import scan_root
+from phototag.nextcloud_sync import nc_dav_relative_path
 from phototag.tagging import run_tag_batch, select_tag_candidates, tag_one_row
 
 TAG_JOBS_DDL = """
@@ -46,30 +43,48 @@ def ensure_tag_jobs_table(con: sqlite3.Connection) -> None:
 
 
 def _collect_nc_paths_from_folders(folders: list[str], recursive: bool) -> list[str]:
-    base = Path(scan_root()).resolve()
-    out: list[str] = []
-    for folder in folders:
-        f = normalize_folder(folder)
-        if recursive:
-            try:
-                physical = physical_path_for_logical(f)
-            except (ValueError, OSError):
-                continue
-            if not physical.is_dir():
-                continue
-            for p in sorted(physical.rglob("*")):
-                if not p.is_file():
-                    continue
-                if p.suffix.lower() not in MEDIA_EXTS:
-                    continue
-                try:
-                    rel = p.relative_to(base).as_posix()
-                except ValueError:
-                    continue
-                out.append(rel)
-        else:
-            out.extend(list_media_files_on_mount(f))
-    return sorted(set(out))
+    return collect_mount_media_nc_paths(folders, recursive)
+
+
+def preview_tag_job(
+    con: sqlite3.Connection,
+    *,
+    folders: list[str] | None = None,
+    nc_paths: list[str] | None = None,
+    retag: bool = False,
+    recursive: bool = True,
+    kind: str | None = None,
+    limit: int = 0,
+) -> dict[str, Any]:
+    """Counts for confirm dialog before starting a folder job."""
+    folders = folders or []
+    nc_paths = list(nc_paths or [])
+    spec = {
+        "folders": folders,
+        "nc_paths": nc_paths,
+        "retag": retag,
+        "recursive": recursive,
+        "kind": kind,
+        "limit": limit,
+        "include_db_folder_rows": False,
+    }
+    media_files = 0
+    if folders and not nc_paths:
+        media_files = len(_collect_nc_paths_from_folders(folders, recursive))
+    rows = resolve_rows_for_spec(con, spec)
+    skipped_tagged = 0
+    if folders and not nc_paths and not retag and media_files:
+        for nc in _collect_nc_paths_from_folders(folders, recursive):
+            row = find_image_by_nc_rel(con, nc)
+            if row and row["status"] == "tagged":
+                skipped_tagged += 1
+    return {
+        "will_tag": len(rows),
+        "skipped_tagged": skipped_tagged,
+        "media_files": media_files,
+        "retag": retag,
+        "recursive": recursive,
+    }
 
 
 def resolve_rows_for_spec(con: sqlite3.Connection, spec: dict[str, Any]) -> list[sqlite3.Row]:
@@ -138,6 +153,8 @@ def create_tag_job(
         "include_db_folder_rows": False,
     }
     rows = resolve_rows_for_spec(con, spec)
+    paths = [nc_dav_relative_path(r["root"], r["path"]) for r in rows]
+    spec["paths"] = paths
     con.execute(
         "INSERT INTO tag_jobs(id,status,created_at,total,spec) VALUES(?,?,?,?,?)",
         (job_id, "pending", time.time(), len(rows), json.dumps(spec)),
@@ -225,6 +242,7 @@ def get_tag_job(con: sqlite3.Connection, job_id: str) -> dict[str, Any] | None:
     if not row:
         return None
     spec = json.loads(row["spec"])
+    paths = list(spec.get("paths") or [])
     return {
         "id": row["id"],
         "status": row["status"],
@@ -238,6 +256,7 @@ def get_tag_job(con: sqlite3.Connection, job_id: str) -> dict[str, Any] | None:
         "current_nc_path": row["current_nc_path"],
         "last_error": row["last_error"],
         "spec": spec,
+        "paths": paths,
     }
 
 

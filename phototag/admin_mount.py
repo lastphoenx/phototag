@@ -8,6 +8,7 @@ from typing import Any
 from phototag.admin_browse import (
     BROWSE_FILTERS,
     is_direct_child_of_folder,
+    is_under_browse_folder,
     list_child_folders_fs,
     mount_accessible,
     normalize_folder,
@@ -164,6 +165,8 @@ def _db_nc_paths_in_folder(
     con: sqlite3.Connection,
     logical_folder: str,
     filter_key: str,
+    *,
+    recursive: bool = False,
 ) -> list[str]:
     """Indexed rows in this folder matching status filter — no mount walk."""
     from phototag.admin_browse import _filter_clause
@@ -173,7 +176,10 @@ def _db_nc_paths_in_folder(
     rows = con.execute(f"SELECT * FROM images WHERE ({extra}) ORDER BY path", params).fetchall()
     out: list[str] = []
     for row in rows:
-        if not is_direct_child_of_folder(row["root"], row["path"], logical_folder):
+        if recursive:
+            if not is_under_browse_folder(row["root"], row["path"], logical_folder):
+                continue
+        elif not is_direct_child_of_folder(row["root"], row["path"], logical_folder):
             continue
         out.append(nc_dav_relative_path(row["root"], row["path"]))
     return out
@@ -187,6 +193,7 @@ def list_mount_browse_items(
     *,
     limit: int = 80,
     offset: int = 0,
+    recursive: bool = False,
 ) -> tuple[list[dict[str, Any]], int]:
     filter_key = filter_key if filter_key in BROWSE_FILTERS else "all"
     logical_folder = normalize_folder(logical_folder)
@@ -194,13 +201,21 @@ def list_mount_browse_items(
     items: list[dict[str, Any]] = []
 
     if filter_key in ("tagged", "review"):
-        for nc_rel in _db_nc_paths_in_folder(con, logical_folder, filter_key):
+        for nc_rel in _db_nc_paths_in_folder(
+            con, logical_folder, filter_key, recursive=recursive
+        ):
             row = nc_index.get(nc_rel)
             if not row:
                 continue
             items.append(_mount_entry_from_row(con, nc_rel, row, allowed))
     else:
-        for nc_rel in list_media_files_on_mount(logical_folder):
+        if recursive:
+            from phototag.admin_browse import collect_mount_media_nc_paths
+
+            nc_list = collect_mount_media_nc_paths([logical_folder], True)
+        else:
+            nc_list = list_media_files_on_mount(logical_folder)
+        for nc_rel in nc_list:
             row = nc_index.get(nc_rel)
             if not _row_matches_filter(row, filter_key):
                 continue

@@ -55,6 +55,25 @@ def test_mount_browse_merge_db(mount_env, monkeypatch):
     assert "outdoor" in tagged["tags"]
 
 
+def test_tagged_filter_recursive_under_folder(mount_env):
+    con = connect()
+    root = str(Path(mount_env).resolve())
+    sub = mount_env / "Zum Löschen" / "Test" / "sub"
+    sub.mkdir()
+    (sub / "deep.jpg").write_bytes(b"x")
+    con.execute(
+        "INSERT INTO images(root,path,folder,kind,status) VALUES(?,?,?,?,?)",
+        (root, "Zum Löschen/Test/sub/deep.jpg", "Zum Löschen/Test/sub", "image", "tagged"),
+    )
+    con.commit()
+    _, flat_total = list_mount_browse_items(con, "Zum Löschen/Test", "tagged", {"outdoor"})
+    assert flat_total == 0
+    _, rec_total = list_mount_browse_items(
+        con, "Zum Löschen/Test", "tagged", {"outdoor"}, recursive=True
+    )
+    assert rec_total == 1
+
+
 def test_tagged_filter_uses_db_not_mount_walk(mount_env):
     con = connect()
     root = str(Path(mount_env).resolve())

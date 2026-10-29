@@ -10,6 +10,11 @@
   let kiJobRunning = false;
   /** @type {string[]} */
   let kiJobOrder = [];
+  let browseOffset = 0;
+  const BROWSE_PAGE = 80;
+  /** @type {Map<string, object>} mount cards on current browse page */
+  let mountCardByNc = new Map();
+  let folderJobActive = false;
 
   async function withBusyButton(btn, busyLabel, fn) {
     const prev = btn.textContent;
@@ -426,6 +431,9 @@
     kiJobOrder = [];
     kiJobCards.forEach((ctx) => resetKiTagButton(ctx));
     kiJobCards.clear();
+    if (folderJobActive) {
+      resetFolderTagButton();
+    }
     if (kiPendingNc.size) {
       scheduleKiJobFlush();
     }
@@ -566,6 +574,8 @@
     };
     actions.append(tagBtn);
 
+    mountCardByNc.set(item.nc_path, kiCtx);
+
     appendReviewActions(actions, {
       item,
       card,
@@ -657,6 +667,7 @@
     rootBtn.textContent = "OF";
     rootBtn.onclick = () => {
       browseFolder = "";
+      browseOffset = 0;
       loadBrowse();
     };
     nav.appendChild(rootBtn);
@@ -675,6 +686,7 @@
       const pathHere = acc;
       btn.onclick = () => {
         browseFolder = pathHere;
+        browseOffset = 0;
         loadBrowse();
       };
       nav.appendChild(btn);
@@ -702,32 +714,130 @@
       b.textContent = "📁 " + name;
       b.onclick = () => {
         browseFolder = f;
+        browseOffset = 0;
         loadBrowse();
       };
       box.appendChild(b);
     });
   }
 
-  function showJobPanel(job, fromKiCards) {
+  function resetFolderTagButton() {
+    const folderBtn = document.getElementById("tagFolderBtn");
+    if (!folderBtn) return;
+    folderBtn.disabled = false;
+    folderBtn.classList.remove("ki-busy");
+    folderBtn.textContent = "Ordner KI-taggen";
+    folderJobActive = false;
+  }
+
+  function bindFolderJobCards(job) {
+    kiJobOrder = Array.isArray(job.paths) ? job.paths : [];
+    kiJobCards.clear();
+    kiJobOrder.forEach((nc) => {
+      const ctx = mountCardByNc.get(nc);
+      if (ctx) {
+        kiJobCards.set(nc, ctx);
+      }
+    });
+  }
+
+  function syncJobCardStatesFromJob(job) {
+    if (!kiJobCards.size || !kiJobOrder.length) return;
+    const cur = job.current_nc_path || "";
+    const done = job.done || 0;
+    const total = kiJobOrder.length;
+    kiJobOrder.forEach((nc, idx) => {
+      const ctx = kiJobCards.get(nc);
+      if (!ctx) return;
+      if (job.status === "done" || job.status === "error" || idx < done) {
+        resetKiTagButton(ctx);
+      } else if (job.status === "running" && nc === cur) {
+        markCardKiState(ctx, "running", idx + 1, total);
+      } else if (job.status === "running") {
+        markCardKiState(ctx, "queued", idx + 1, total);
+      }
+    });
+  }
+
+  function updateFolderJobButton(job) {
+    if (!folderJobActive) return;
+    const folderBtn = document.getElementById("tagFolderBtn");
+    if (!folderBtn) return;
+    folderBtn.disabled = true;
+    folderBtn.classList.add("ki-busy");
+    if (job.status === "running") {
+      folderBtn.textContent =
+        "KI " + job.done + "/" + job.total + (job.current_nc_path ? " …" : "");
+    } else if (job.status === "done") {
+      folderBtn.textContent = "Fertig " + job.ok_count + "/" + job.total;
+    }
+  }
+
+  function renderJobPanelContent(job, trackCards) {
+    const parts = [];
+    parts.push(
+      "<strong>Tag-Job " +
+        job.id +
+        "</strong> " +
+        job.status +
+        " — " +
+        job.done +
+        "/" +
+        job.total +
+        " · ok " +
+        job.ok_count +
+        ", fehler " +
+        job.fail_count
+    );
+    if (job.current_nc_path && job.status === "running") {
+      parts.push("<div class=\"job-current\"><strong>aktiv:</strong> " + job.current_nc_path + "</div>");
+    }
+    if (job.last_error && job.fail_count) {
+      parts.push("<div class=\"job-err\">" + job.last_error + "</div>");
+    }
+    if (Array.isArray(job.paths) && job.paths.length) {
+      const done = job.done || 0;
+      const cur = job.current_nc_path || "";
+      parts.push('<ol class="job-path-list">');
+      const show = job.paths.slice(0, 40);
+      show.forEach((nc, idx) => {
+        let cls = "job-path-pending";
+        if (job.status === "done" || idx < done) cls = "job-path-done";
+        else if (nc === cur && job.status === "running") cls = "job-path-active";
+        parts.push('<li class="' + cls + '">' + nc + "</li>");
+      });
+      if (job.paths.length > show.length) {
+        parts.push(
+          '<li class="job-path-more">… ' +
+            (job.paths.length - show.length) +
+            " weitere in diesem Job</li>"
+        );
+      }
+      parts.push("</ol>");
+      if (trackCards && kiJobCards.size < job.paths.length) {
+        parts.push(
+          '<p class="job-hint">Nur Dateien auf dieser Seite mit Rahmen markiert (' +
+            kiJobCards.size +
+            " von " +
+            job.paths.length +
+            ").</p>"
+        );
+      }
+    }
+    return parts.join("");
+  }
+
+  function showJobPanel(job, trackCards) {
     const el = document.getElementById("jobPanel");
     if (!job || job.status === "done" || job.status === "error") {
       if (job && (job.status === "done" || job.status === "error")) {
         el.classList.remove("hidden");
-        el.innerHTML =
-          "<strong>Tag-Job " +
-          job.id +
-          "</strong> " +
-          job.status +
-          " — " +
-          job.ok_count +
-          " ok, " +
-          job.fail_count +
-          " fehler (" +
-          job.done +
-          "/" +
-          job.total +
-          ")";
-        if (fromKiCards) {
+        el.innerHTML = renderJobPanelContent(job, trackCards);
+        if (trackCards) {
+          syncJobCardStatesFromJob(job);
+          onKiJobFinished(job);
+        } else if (folderJobActive) {
+          syncJobCardStatesFromJob(job);
           onKiJobFinished(job);
         } else if (job.status === "done") {
           setTimeout(() => {
@@ -745,28 +855,10 @@
       return;
     }
     el.classList.remove("hidden");
-    el.innerHTML =
-      "<strong>Tag-Job " +
-      job.id +
-      "</strong> " +
-      job.status +
-      " — " +
-      job.done +
-      "/" +
-      job.total +
-      (job.current_nc_path ? " · <strong>aktiv:</strong> " + job.current_nc_path : "");
-    if (fromKiCards) {
-      const order = kiJobOrder.length ? kiJobOrder : [...kiJobCards.keys()];
-      const cur = job.current_nc_path || "";
-      order.forEach((nc, idx) => {
-        const ctx = kiJobCards.get(nc);
-        if (!ctx) return;
-        if (nc === cur) {
-          markCardKiState(ctx, "running", idx + 1, order.length);
-        } else if (job.done < job.total) {
-          markCardKiState(ctx, "queued", idx + 1, order.length);
-        }
-      });
+    el.innerHTML = renderJobPanelContent(job, trackCards);
+    updateFolderJobButton(job);
+    if (trackCards || folderJobActive) {
+      syncJobCardStatesFromJob(job);
     }
   }
 
@@ -791,13 +883,63 @@
     const folder = browseFolder;
     const retag = tagRetagCheckboxChecked();
     const recursive = document.getElementById("tagRecursive").checked;
-    let msg = "KI-Tagging für Ordner «" + (folder || "OF") + "» starten?";
+    const folderBtn = document.getElementById("tagFolderBtn");
+    let preview;
+    try {
+      preview = await api(
+        "/api/tag/jobs/preview?folder=" +
+          encodeURIComponent(folder) +
+          "&recursive=" +
+          (recursive ? "1" : "0") +
+          "&retag=" +
+          (retag ? "1" : "0")
+      );
+    } catch (e) {
+      setStatus(String(e.message || e), true);
+      return;
+    }
+    if (!preview.ok) {
+      setStatus(preview.error || "Vorschau fehlgeschlagen", true);
+      return;
+    }
+    const label = folder || "OF";
+    let msg =
+      "KI-Tagging für «" +
+      label +
+      "»" +
+      (recursive ? " inkl. Unterordner" : " nur dieser Ordner") +
+      "?\n\n" +
+      "→ " +
+      preview.will_tag +
+      " Datei(en) werden getaggt";
+    if (!retag && preview.skipped_tagged > 0) {
+      msg +=
+        "\n→ " +
+        preview.skipped_tagged +
+        " bereits getaggt — werden übersprungen";
+    }
+    if (preview.media_files && preview.media_files !== preview.will_tag) {
+      msg +=
+        "\n→ " +
+        preview.media_files +
+        " Mediendatei(en) auf dem Mount (gesamt)";
+    }
     if (retag) {
       msg +=
-        "\n\nNeu taggen ist aktiv — auch bereits getaggte Dateien werden erneut durch KI verarbeitet.";
+        "\n\nNeu taggen ist aktiv — auch getaggte Dateien werden erneut verarbeitet.";
+    }
+    if (preview.will_tag === 0) {
+      setStatus(
+        "Kein KI-Job: 0 Dateien zum Taggen" +
+          (preview.skipped_tagged
+            ? " (" + preview.skipped_tagged + " bereits getaggt)"
+            : "") +
+          ". Optional «Neu taggen» für Retag.",
+        true
+      );
+      return;
     }
     if (!confirm(msg)) return;
-    const folderBtn = document.getElementById("tagFolderBtn");
     folderBtn.disabled = true;
     folderBtn.classList.add("ki-busy");
     folderBtn.textContent = "Job startet …";
@@ -810,16 +952,58 @@
           recursive,
         }),
       });
-      setStatus("Tag-Job gestartet: " + data.job.id + " (" + data.job.total + " Dateien)");
-      showJobPanel(data.job);
-      pollTagJob(data.job.id, false);
+      folderJobActive = true;
+      kiJobRunning = true;
+      bindFolderJobCards(data.job);
+      setStatus(
+        "Tag-Job " +
+          data.job.id +
+          ": " +
+          data.job.total +
+          " Datei(en) — Fortschritt unten und auf sichtbaren Karten"
+      );
+      showJobPanel(data.job, true);
+      pollTagJob(data.job.id, true);
     } catch (e) {
       setStatus(String(e.message || e), true);
-    } finally {
-      folderBtn.disabled = false;
-      folderBtn.classList.remove("ki-busy");
-      folderBtn.textContent = "Ordner KI-taggen";
+      resetFolderTagButton();
     }
+  }
+
+  function renderBrowsePager(total, offset, limit) {
+    const nav = document.getElementById("browsePager");
+    if (!isBrowseMode() || total <= limit) {
+      nav.classList.add("hidden");
+      nav.innerHTML = "";
+      return;
+    }
+    nav.classList.remove("hidden");
+    const page = Math.floor(offset / limit) + 1;
+    const pages = Math.max(1, Math.ceil(total / limit));
+    nav.innerHTML = "";
+    const info = document.createElement("span");
+    info.className = "pager-info";
+    info.textContent =
+      "Seite " + page + " / " + pages + " · " + total + " Treffer";
+    nav.appendChild(info);
+    const prev = document.createElement("button");
+    prev.type = "button";
+    prev.textContent = "← Zurück";
+    prev.disabled = offset <= 0;
+    prev.onclick = () => {
+      browseOffset = Math.max(0, offset - limit);
+      loadBrowse().catch((e) => setStatus(e.message, true));
+    };
+    nav.appendChild(prev);
+    const next = document.createElement("button");
+    next.type = "button";
+    next.textContent = "Weiter →";
+    next.disabled = offset + limit >= total;
+    next.onclick = () => {
+      browseOffset = offset + limit;
+      loadBrowse().catch((e) => setStatus(e.message, true));
+    };
+    nav.appendChild(next);
   }
 
   async function loadQueue() {
@@ -841,20 +1025,33 @@
     await loadCatalog();
     renderBreadcrumb();
     await loadSubfolders();
+    mountCardByNc.clear();
     const filter = document.getElementById("browseFilter").value;
+    const recursive = document.getElementById("browseRecursive").checked;
     const data = await api(
       "/api/browse?folder=" +
         encodeURIComponent(browseFolder) +
         "&filter=" +
-        encodeURIComponent(filter)
+        encodeURIComponent(filter) +
+        "&recursive=" +
+        (recursive ? "1" : "0") +
+        "&offset=" +
+        browseOffset +
+        "&limit=" +
+        BROWSE_PAGE
     );
     const q = document.getElementById("queue");
     q.innerHTML = "";
-    const where = browseFolder ? browseFolder + "/" : "OF/";
+    renderBrowsePager(data.total, data.offset, data.limit);
+    const scope = recursive
+      ? "Baum unter " + (browseFolder || "OF")
+      : browseFolder
+        ? browseFolder + "/"
+        : "OF/";
     if (!data.items.length) {
       setStatus(
         "Keine Mediendateien in " +
-          where +
+          scope +
           " (Filter: " +
           filter +
           "). Anderen Ordner wählen oder Mount prüfen."
@@ -862,13 +1059,22 @@
       return;
     }
     data.items.forEach((item) => q.appendChild(renderMountItem(item)));
+    const pageNote =
+      data.total > data.limit
+        ? " · Einträge " +
+          (data.offset + 1) +
+          "–" +
+          Math.min(data.offset + data.count, data.total)
+        : "";
     setStatus(
       data.total +
-        " Datei(en) auf Mount in " +
-        (browseFolder || "OF") +
+        " Treffer in " +
+        scope +
         ", Filter «" +
         filter +
-        "» — manuell taggen, Speichern schreibt DB" +
+        "»" +
+        pageNote +
+        " — Speichern schreibt DB" +
         (document.getElementById("pushAfter").checked ? " + push-nc" : "") +
         "."
     );
@@ -879,6 +1085,7 @@
     document.getElementById("folderNav").classList.toggle("hidden", !browse);
     document.getElementById("filterWrap").classList.toggle("hidden", !browse);
     document.getElementById("retagWrap").classList.toggle("hidden", !browse);
+    document.getElementById("browseRecursiveWrap").classList.toggle("hidden", !browse);
     document.getElementById("subfolders").classList.toggle("hidden", !browse);
   }
 
@@ -892,6 +1099,11 @@
 
   document.getElementById("viewMode").onchange = reload;
   document.getElementById("browseFilter").onchange = () => {
+    browseOffset = 0;
+    if (isBrowseMode()) loadBrowse().catch((e) => setStatus(e.message, true));
+  };
+  document.getElementById("browseRecursive").onchange = () => {
+    browseOffset = 0;
     if (isBrowseMode()) loadBrowse().catch((e) => setStatus(e.message, true));
   };
   document.getElementById("reloadBtn").onclick = reload;
