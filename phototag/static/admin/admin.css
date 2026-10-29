@@ -182,6 +182,18 @@ button.warn { background: #4a3a18; border-color: #6b5420; color: var(--warn); }
 }
 .status-badge.review { color: var(--warn); }
 .status-badge.tagged { color: var(--ok); }
+.job-panel {
+  margin: 0 1.25rem 0.5rem;
+  padding: 0.6rem 0.85rem;
+  background: #1e2838;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.job-panel.hidden { display: none; }
+.job-panel strong { color: var(--text); }
+#tagFolderBtn { font-size: 0.85rem; margin-left: 0.5rem; }
 .tag-editor { display: flex; flex-direction: column; gap: 0.4rem; }
 .tag.removable { cursor: pointer; }
 .add-tag { display: flex; gap: 0.35rem; }

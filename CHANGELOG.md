@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.0
+
+- **KI-Tagging aus Admin-UI:** pro Datei **KI taggen** (sync, langer gunicorn-Timeout); **Ordner KI-taggen** startet Hintergrund-Job (`POST /api/tag/jobs`, Fortschritt per Poll). CLI: **`phototag tag --folder`**, **`--nc-path`**, **`--no-recursive`**. Jobs: `tag-job-run` (Subprozess, Log unter `state/tag-job-*.log`).
+
 ## 0.4.0
 
 - **Admin-UI Mount-first:** Ordner und Dateien vom **rclone-Mount**; DB nur Anreicherung + **Speichern** (Index bei Bedarf, optional **push-nc**). Review-Queue unverändert separat.

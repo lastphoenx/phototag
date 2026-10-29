@@ -557,55 +557,64 @@ def _print_tag_extras(out: dict, caption: str, dropped: list[str], verbose: bool
 
 
 def cmd_tag(args) -> None:
-    categories = load_categories()
-    allowed = {t for t, _ in categories}
+    from phototag.admin_browse import normalize_folder
+    from phototag.tagging import run_tag_batch
+    from phototag.tag_jobs import resolve_rows_for_spec
+
     con = connect()
-    where = ["status IN ('new','error')" if not args.retag else "1=1"]
-    params: list = []
-    if args.kind:
-        where.append("kind=?")
-        params.append(args.kind)
-    rows = con.execute(
-        f"SELECT * FROM images WHERE {' AND '.join(where)} ORDER BY id LIMIT ?", (*params, args.limit or -1)
-    ).fetchall()
-    print(f"{len(rows)} Dateien zu verarbeiten (Modell {model_name()} @ {api_url()}, prompt={prompt_lang()})")
+    folders = [
+        normalize_folder(f)
+        for f in (getattr(args, "folder", None) or [])
+        if normalize_folder(f)
+    ]
+    nc_paths = [p.strip().lstrip("/") for p in (getattr(args, "nc_path", None) or []) if p.strip()]
     verbose = bool(getattr(args, "verbose", False) or cli_verbose())
-    for i, row in enumerate(rows, 1):
-        path = Path(row["root"]) / row["path"]
-        is_video = row["kind"] == "video"
-        t0 = time.time()
-        try:
-            media = encode_video(path) if is_video else encode_image(path)
-            out = ask_model(media["frames"], categories, is_video)
-            age_status = str(out.get("age_status", "unsure")).lower()
-            tags, dropped, caption, model_raw = _apply_model_output(out, allowed)
-            tags, sanitize_flags = sanitize_tags(tags, allowed)
-        except (OSError, urllib.error.URLError, ValueError, KeyError, json.JSONDecodeError,
-                subprocess.TimeoutExpired) as exc:
-            con.execute("UPDATE images SET status='error', error=? WHERE id=?", (str(exc)[:300], row["id"]))
-            con.commit()
-            print(f"[{i}/{len(rows)}] FEHLER {row['path']}: {exc}")
-            continue
-        status = "tagged" if age_status == "yes" and not sanitize_flags else "review"
-        review_note = None
-        if sanitize_flags:
-            review_note = "sanitize:" + ",".join(sanitize_flags)
-        elif age_status != "yes":
-            review_note = None
-        con.execute("DELETE FROM tags WHERE image_id=?", (row["id"],))
-        if status == "tagged":
-            con.executemany("INSERT INTO tags VALUES(?,?)", [(row["id"], t) for t in tags])
-        con.execute(
-            "UPDATE images SET status=?,age_status=?,caption=?,model_raw=?,width=?,height=?,duration=?,frames=?,thumb=?,"
-            "model=?,tagged_at=?,error=? WHERE id=?",
-            (status, age_status, caption, model_raw, media["width"], media["height"],
-             media["duration"], len(media["frames"]), media["thumb"], model_name(), time.time(), review_note, row["id"]),
+
+    if folders or nc_paths:
+        spec = {
+            "folders": folders,
+            "nc_paths": nc_paths,
+            "retag": bool(args.retag),
+            "recursive": not getattr(args, "no_recursive", False),
+            "kind": args.kind,
+            "limit": args.limit or 0,
+            "include_db_folder_rows": False,
+        }
+        rows = resolve_rows_for_spec(con, spec)
+    else:
+        where = ["status IN ('new','error')" if not args.retag else "1=1"]
+        params: list = []
+        if args.kind:
+            where.append("kind=?")
+            params.append(args.kind)
+        lim = args.limit or -1
+        rows = con.execute(
+            f"SELECT * FROM images WHERE {' AND '.join(where)} ORDER BY id LIMIT ?",
+            (*params, lim),
+        ).fetchall()
+
+    print(
+        f"{len(rows)} Dateien zu verarbeiten (Modell {model_name()} @ {api_url()}, "
+        f"prompt={prompt_lang()})"
+    )
+
+    def on_progress(ev: dict) -> None:
+        if ev.get("phase") != "done_one":
+            return
+        res = ev["result"]
+        i = ev.get("index", 0)
+        total = ev.get("total", len(rows))
+        if not res.get("ok"):
+            print(f"[{i}/{total}] FEHLER {res.get('nc_path')}: {res.get('error')}")
+            return
+        extra = ""
+        print(
+            f"[{i}/{total}] {res.get('status','?'):6} {res.get('nc_path')}  "
+            f"{' '.join(res.get('tags') or [])}  ({res.get('seconds')}s){extra}"
         )
-        index_image(con, row["id"])
-        con.commit()
-        extra = f" [{len(media['frames'])} Frames]" if is_video else ""
-        print(f"[{i}/{len(rows)}] {status:6} {row['path']}{extra}  {' '.join(tags)}  ({time.time()-t0:.1f}s)")
-        _print_tag_extras(out, caption if status == "tagged" else str(out.get("caption", ""))[:160], dropped, verbose, sanitize_flags)
+
+    stats = run_tag_batch(con, rows, verbose=verbose, on_progress=on_progress)
+    print(f"-- fertig: {stats['ok']} ok, {stats['failed']} fehler, {stats['total']} gesamt")
 
 
 # ---------------------------------------------------------------- Suche
@@ -791,6 +800,13 @@ def cmd_push_nc(args) -> None:
     print(f"-- {files_ok} Datei(en), {tags_pushed} Tag-Zuweisung(en)")
 
 
+def cmd_tag_job_run(args) -> None:
+    from phototag.tag_jobs import run_tag_job
+
+    con = connect()
+    run_tag_job(con, args.job_id, verbose=bool(getattr(args, "verbose", False)))
+
+
 def cmd_version(_args) -> None:
     from phototag import __version__
 
@@ -801,10 +817,33 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("scan"); s.add_argument("root"); s.set_defaults(fn=cmd_scan)
-    t = sub.add_parser("tag"); t.add_argument("--limit", type=int, default=0); t.add_argument("--retag", action="store_true")
+    t = sub.add_parser("tag")
+    t.add_argument("--limit", type=int, default=0)
+    t.add_argument("--retag", action="store_true")
     t.add_argument("--kind", choices=["image", "video"])
+    t.add_argument(
+        "--folder",
+        action="append",
+        default=[],
+        help="NC/OF-Ordner (Mount-relativ), mehrfach möglich; mit --no-recursive nur direkte Dateien",
+    )
+    t.add_argument(
+        "--nc-path",
+        action="append",
+        default=[],
+        help="Einzelne Datei (NC-Pfad, z. B. Zum Löschen/Test/a.jpg)",
+    )
+    t.add_argument(
+        "--no-recursive",
+        action="store_true",
+        help="Mit --folder nur Dateien direkt im Ordner, keine Unterordner",
+    )
     t.add_argument("-v", "--verbose", action="store_true", help="caption, observations, verworfene Tags, raw JSON")
-    t.set_defaults(fn=cmd_tag)
+    t.set_defaults(fn=cmd_tag, recursive=True)
+    tjr = sub.add_parser("tag-job-run", help=argparse.SUPPRESS)
+    tjr.add_argument("job_id")
+    tjr.add_argument("-v", "--verbose", action="store_true")
+    tjr.set_defaults(fn=cmd_tag_job_run)
     q = sub.add_parser("search"); q.add_argument("query", nargs="?", default="")
     q.add_argument("--any", action="store_true"); q.add_argument("--fuzzy", action="store_true")
     q.add_argument("--tag", action="append"); q.add_argument("--folder", default=""); q.add_argument("--kind", choices=["image", "video"])

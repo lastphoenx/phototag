@@ -227,6 +227,71 @@ def create_app():
             return jsonify({"ok": False, "error": str(exc)}), 400
         return jsonify(result)
 
+    @app.post("/api/tag/one")
+    def api_tag_one():
+        _check_api_auth()
+        from phototag.cli import connect
+        from phototag.tag_jobs import tag_nc_path_sync
+
+        body = request.get_json(silent=True) or {}
+        nc_path = (body.get("nc_path") or "").strip().lstrip("/")
+        retag = body.get("retag") in (True, 1, "1", "true")
+        if not nc_path:
+            return jsonify({"ok": False, "error": "nc_path fehlt"}), 400
+        con = connect()
+        try:
+            result = tag_nc_path_sync(con, nc_path, retag=retag)
+        except (FileNotFoundError, RuntimeError, OSError) as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify(result)
+
+    @app.post("/api/tag/jobs")
+    def api_tag_jobs_create():
+        _check_api_auth()
+        from phototag.cli import connect
+        from phototag.tag_jobs import create_tag_job, get_tag_job, spawn_tag_job_subprocess
+
+        body = request.get_json(silent=True) or {}
+        folders = body.get("folders") or []
+        nc_paths = body.get("nc_paths") or []
+        if isinstance(folders, str):
+            folders = [folders]
+        if isinstance(nc_paths, str):
+            nc_paths = [nc_paths]
+        retag = body.get("retag") in (True, 1, "1", "true")
+        recursive = body.get("recursive", True) not in (False, 0, "0", "false")
+        kind = body.get("kind")
+        limit = int(body.get("limit") or 0)
+        if not folders and not nc_paths:
+            return jsonify({"ok": False, "error": "folders oder nc_paths nötig"}), 400
+        con = connect()
+        job_id = create_tag_job(
+            con,
+            folders=[str(f) for f in folders],
+            nc_paths=[str(p) for p in nc_paths],
+            retag=retag,
+            recursive=recursive,
+            kind=kind,
+            limit=limit,
+        )
+        job = get_tag_job(con, job_id)
+        if job and job["total"] == 0:
+            return jsonify({"ok": False, "error": "Keine Dateien für Job", "job": job}), 400
+        spawn_tag_job_subprocess(job_id)
+        return jsonify({"ok": True, "job": job})
+
+    @app.get("/api/tag/jobs/<job_id>")
+    def api_tag_job_status(job_id: str):
+        _check_api_auth()
+        from phototag.cli import connect
+        from phototag.tag_jobs import get_tag_job
+
+        con = connect()
+        job = get_tag_job(con, job_id)
+        if not job:
+            return jsonify({"ok": False, "error": "Job nicht gefunden"}), 404
+        return jsonify({"ok": True, "job": job})
+
     @app.get("/api/images/<int:image_id>/thumb")
     def api_thumb(image_id: int):
         _check_api_auth()

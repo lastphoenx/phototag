@@ -26,7 +26,7 @@ set +a
 export PHOTOTAG_ADMIN_BIND="${PHOTOTAG_ADMIN_SERVICE_BIND:-0.0.0.0}"
 BIND="$PHOTOTAG_ADMIN_BIND"
 PORT="${PHOTOTAG_ADMIN_PORT:-8765}"
-WORKERS="${PHOTOTAG_ADMIN_GUNICORN_WORKERS:-2}"
+WORKERS="${PHOTOTAG_ADMIN_GUNICORN_WORKERS:-1}"
 
 if ! "$PY" -c "from phototag.admin_app import application" 2>&1; then
   echo "FEHLER: Admin-App startet nicht (Import/Login-Env). phototag.env pruefen." >&2
@@ -38,7 +38,7 @@ echo "phototag-admin: gunicorn http://${BIND}:${PORT}/ (workers=${WORKERS})" >&2
 exec "$PY" -m gunicorn \
   --bind "${BIND}:${PORT}" \
   --workers "$WORKERS" \
-  --timeout 120 \
+  --timeout 600 \
   --access-logfile - \
   --error-logfile - \
   phototag.admin_app:application

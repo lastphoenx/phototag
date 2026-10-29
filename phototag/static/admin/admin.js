@@ -1,6 +1,7 @@
 (function () {
   let tagCatalog = [];
   let browseFolder = "";
+  let jobPollTimer = null;
 
   function setStatus(msg, isErr) {
     const el = document.getElementById("statusLine");
@@ -209,6 +210,35 @@
     };
     actions.append(saveBtn);
 
+    const tagBtn = document.createElement("button");
+    tagBtn.textContent = "KI taggen";
+    tagBtn.onclick = async () => {
+      tagBtn.disabled = true;
+      setStatus("KI-Tagging … " + item.nc_path + " ( kann Minuten dauern )");
+      try {
+        const retag = document.getElementById("tagRetag")?.checked;
+        const res = await api("/api/tag/one", {
+          method: "POST",
+          body: JSON.stringify({ nc_path: item.nc_path, retag: !!retag }),
+        });
+        if (res.skipped) {
+          setStatus(res.message || "Übersprungen");
+        } else if (res.ok) {
+          badge.textContent = res.status || "ok";
+          if (res.caption) capArea.value = res.caption;
+          setStatus("KI fertig: " + item.nc_path + " → " + (res.status || ""));
+          loadBrowse().catch(() => {});
+        } else {
+          setStatus(res.error || "Fehler", true);
+        }
+      } catch (e) {
+        setStatus(String(e.message || e), true);
+      } finally {
+        tagBtn.disabled = false;
+      }
+    };
+    actions.append(tagBtn);
+
     if (inReview && item.id) {
       const skipBtn = document.createElement("button");
       skipBtn.className = "warn";
@@ -397,6 +427,91 @@
     });
   }
 
+  function showJobPanel(job) {
+    const el = document.getElementById("jobPanel");
+    if (!job || job.status === "done" || job.status === "error") {
+      if (job && (job.status === "done" || job.status === "error")) {
+        el.classList.remove("hidden");
+        el.innerHTML =
+          "<strong>Tag-Job " +
+          job.id +
+          "</strong> " +
+          job.status +
+          " — " +
+          job.ok_count +
+          " ok, " +
+          job.fail_count +
+          " fehler (" +
+          job.done +
+          "/" +
+          job.total +
+          ")";
+        if (job.status === "done") {
+          setTimeout(() => {
+            el.classList.add("hidden");
+            loadBrowse().catch(() => {});
+          }, 4000);
+        }
+      } else {
+        el.classList.add("hidden");
+      }
+      if (jobPollTimer) {
+        clearInterval(jobPollTimer);
+        jobPollTimer = null;
+      }
+      return;
+    }
+    el.classList.remove("hidden");
+    el.innerHTML =
+      "<strong>Tag-Job " +
+      job.id +
+      "</strong> " +
+      job.status +
+      " — " +
+      job.done +
+      "/" +
+      job.total +
+      (job.current_nc_path ? " · " + job.current_nc_path : "");
+  }
+
+  function pollTagJob(jobId) {
+    if (jobPollTimer) clearInterval(jobPollTimer);
+    const tick = async () => {
+      try {
+        const data = await api("/api/tag/jobs/" + jobId);
+        showJobPanel(data.job);
+      } catch (e) {
+        setStatus(String(e.message || e), true);
+        clearInterval(jobPollTimer);
+        jobPollTimer = null;
+      }
+    };
+    tick();
+    jobPollTimer = setInterval(tick, 2000);
+  }
+
+  async function startFolderTagJob() {
+    const folder = browseFolder;
+    const retag = document.getElementById("tagRetag").checked;
+    const recursive = document.getElementById("tagRecursive").checked;
+    if (!confirm("KI-Tagging für Ordner «" + (folder || "OF") + "» starten?")) return;
+    try {
+      const data = await api("/api/tag/jobs", {
+        method: "POST",
+        body: JSON.stringify({
+          folders: folder ? [folder] : [""],
+          retag,
+          recursive,
+        }),
+      });
+      setStatus("Tag-Job gestartet: " + data.job.id + " (" + data.job.total + " Dateien)");
+      showJobPanel(data.job);
+      pollTagJob(data.job.id);
+    } catch (e) {
+      setStatus(String(e.message || e), true);
+    }
+  }
+
   async function loadQueue() {
     setStatus("Lade Review …");
     await loadCatalog();
@@ -469,6 +584,8 @@
     if (isBrowseMode()) loadBrowse().catch((e) => setStatus(e.message, true));
   };
   document.getElementById("reloadBtn").onclick = reload;
+  document.getElementById("tagFolderBtn").onclick = () =>
+    startFolderTagJob().catch((e) => setStatus(e.message, true));
 
   syncBrowseChrome();
   reload();
