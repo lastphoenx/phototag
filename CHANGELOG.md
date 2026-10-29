@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.6
+
+- **`categories.example.txt`:** Abschnitt Stoff/Transparenz (`sheer`, `see_through`, `sheer_wet`, …) als Vorlage für lokale `categories.txt`.
+
 ## 0.5.5
 
 - **KI-Queue UI:** Warteschlange = **gelber** Rahmen/Button/Badge; laufende Datei = **blau** (pulsierender Rahmen).

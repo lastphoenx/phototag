@@ -39,3 +39,19 @@ heels: High Heels sichtbar
 barefoot: barfuss
 clothed: klar bekleidet (Fallback wenn kein Detail-Tag passt)
 lingerie: Unterwäsche oder Dessous (nicht Bikini im Wasser)
+
+# --- Stoff / Transparenz (lokal categories.txt — max. 1–2 pro Bild) ---
+sheer: dünn/durchscheinend, Konturen durch Stoff erkennbar
+transparent: transparentes Material, Haut/Körper klar durch sichtbar
+see_through: see-through — Details (Brustwarze, Schambereich) durch Kleidung erkennbar
+sheer_wet: nass/feucht — Durchscheinen deutlich verstärkt (klebt am Körper)
+wet_clothing: Kleidung sichtbar nass (Dusche, Pool, Regen, Schweiß)
+mesh_fabric: Netz/Mesh-Stoff (Löchermuster, nicht nur fishnet)
+fishnet: Fishnet-Muster (Strumpf, Body, Top)
+lace: Spitze als sichtbares Material (nicht nur «lingerie» generisch)
+bodystocking: Bodystocking / einteiliges Netz-Body
+nipples_through_fabric: Brustwarzen/Hof durch Stoff erkennbar (sheer oder nass)
+genitals_through_fabric: Schambereich/Kontur durch Stoff erkennbar (sheer/nass)
+no_bra_visible: BH-Linien/fehlender BH unter sheer/Top erkennbar
+thong: String-Tanga sichtbar
+g_string: G-String (minimaler Slip)
