@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>phototag Review</title>
+  <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+  <header class="bar">
+    <h1>phototag Review</h1>
+    <div class="bar-actions">
+      <label class="chk"><input type="checkbox" id="pushAfter" checked> Nach Freigabe push-nc</label>
+      <button type="button" id="reloadBtn">Aktualisieren</button>
+    </div>
+  </header>
+
+  <section id="loginPanel" class="panel hidden">
+    <p>Token aus <code>phototag.env</code> (<code>PHOTOTAG_ADMIN_TOKEN</code>) — bleibt nur in diesem Browser (sessionStorage).</p>
+    <input type="password" id="tokenInput" autocomplete="off" placeholder="Admin-Token">
+    <button type="button" id="loginBtn" class="primary">Anmelden</button>
+  </section>
+
+  <p id="statusLine" class="status"></p>
+  <main id="queue" class="queue"></main>
+
+  <script src="/static/admin.js"></script>
+</body>
+</html>

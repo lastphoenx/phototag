@@ -55,6 +55,25 @@ Voraussetzung: Datei in der DB muss **unter demselben relativen Pfad** in NC exi
 
 Erster Tag-Test: kleines Limit, `-v` optional.
 
+### Review-Queue (age_status unsure)
+
+- **`phototag review`** — id, NC-Pfad, Caption; **`--backfill-captions`** zieht alte Captions aus `model_raw`.
+- **`phototag approve --id N --push`** — manuell freigeben + optional NC.
+- **`phototag thumb --id N /tmp/x.jpg`** — Vorschau (id aus `review`).
+
+### Admin-UI (`phototag serve`)
+
+Lokal auf dem CT, **kein CDN** — CSS/JS liegen im Python-Paket.
+
+```bash
+pip install -e ".[admin]"    # einmalig nach Update
+# phototag.env: PHOTOTAG_ADMIN_TOKEN=<lang>, optional BIND/PORT
+set -a && source phototag.env && set +a
+phototag serve               # http://127.0.0.1:8765
+```
+
+Im Browser: Token aus `phototag.env` einmal eingeben (sessionStorage). Tags editieren, Caption anpassen, **Freigeben** (+ optional push-nc). Nur über **localhost** oder nginx mit Auth erreichbar machen — Token nicht committen.
+
 ## 5. Nacht-Lauf (optional, noch manuell aktivieren)
 
 **Im Repo:** nur Vorlagen — **auf CT 142 ist kein systemd-Timer automatisch installiert**, bis du `cp` + `enable` ausführst. Prüfen: `systemctl status phototag-night.timer` (wenn „not found“ → noch nicht eingerichtet).

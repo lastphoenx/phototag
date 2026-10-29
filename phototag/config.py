@@ -115,6 +115,18 @@ def nc_tls_ca_file() -> str:
     return os.getenv("PHOTOTAG_NC_CA_FILE", "").strip()
 
 
+def admin_token() -> str:
+    return os.getenv("PHOTOTAG_ADMIN_TOKEN", "").strip()
+
+
+def admin_bind() -> str:
+    return os.getenv("PHOTOTAG_ADMIN_BIND", "127.0.0.1").strip() or "127.0.0.1"
+
+
+def admin_port() -> int:
+    return max(1, min(65535, int(os.getenv("PHOTOTAG_ADMIN_PORT", "8765"))))
+
+
 def categories_path() -> Path:
     """PHOTOTAG_CATEGORIES, else ./categories.txt, else packaged categories.example.txt."""
     global _example_warned

@@ -2,6 +2,12 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.3.25
+
+- **Review:** `caption` wird auch bei `status=review` gespeichert; `phototag review --backfill-captions` für alte Zeilen.
+- **`phototag approve`** (CLI) und **`phototag serve`** — lokale Admin-UI (Flask, Static im Repo, kein CDN): Tags bearbeiten, freigeben, optional `push-nc`.
+- **`phototag thumb --id N`** — Vorschau per DB-id aus `phototag review`.
+
 ## 0.3.24
 
 - **`push-nc`:** Tag-Zuweisung an Dateien mit WebDAV-PUT + XML (wie Nextcloud-UI). Leerer PUT + HTTP **412** wurde fälschlich als «schon ok» gewertet → Schlagworte existierten global, aber **nicht** dateispezifisch angehakt. Nach Update: `phototag push-nc --force` für betroffene Dateien.

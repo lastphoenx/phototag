@@ -598,7 +598,7 @@ def cmd_tag(args) -> None:
         con.execute(
             "UPDATE images SET status=?,age_status=?,caption=?,model_raw=?,width=?,height=?,duration=?,frames=?,thumb=?,"
             "model=?,tagged_at=?,error=? WHERE id=?",
-            (status, age_status, caption if status == "tagged" else None, model_raw, media["width"], media["height"],
+            (status, age_status, caption, model_raw, media["width"], media["height"],
              media["duration"], len(media["frames"]), media["thumb"], model_name(), time.time(), review_note, row["id"]),
         )
         index_image(con, row["id"])
@@ -660,11 +660,22 @@ def cmd_search(args) -> None:
 
 def cmd_thumb(args) -> None:
     con = connect()
-    row = con.execute("SELECT thumb FROM images WHERE path=?", (args.path,)).fetchone()
+    if args.id:
+        if not args.out:
+            sys.exit("Usage: phototag thumb --id ID OUTFILE")
+        row = con.execute(
+            "SELECT thumb, path, root FROM images WHERE id=?", (args.id,)
+        ).fetchone()
+    else:
+        if not args.path or not args.out:
+            sys.exit("Usage: phototag thumb PATH OUTFILE  oder  phototag thumb --id ID OUTFILE")
+        row = con.execute(
+            "SELECT thumb, path, root FROM images WHERE path=?", (args.path,)
+        ).fetchone()
     if not row or not row["thumb"]:
         sys.exit("keine Vorschau gefunden")
     Path(args.out).write_bytes(row["thumb"])
-    print(f"{len(row['thumb'])} Bytes -> {args.out}")
+    print(f"{len(row['thumb'])} Bytes -> {args.out} ({row['path']})")
 
 
 def cmd_stats(_args) -> None:
@@ -681,13 +692,50 @@ def cmd_stats(_args) -> None:
         print(f"  {folder or '/':30} {n}")
 
 
-def cmd_review(_args) -> None:
+def cmd_review(args) -> None:
+    from phototag.review_queue import backfill_review_captions, nc_display_path
+
     con = connect()
+    if args.backfill_captions:
+        n = backfill_review_captions(con)
+        print(f"{n} Review-Captions aus model_raw nachgezogen.")
     for r in con.execute(
-        "SELECT path,age_status,kind,error FROM images WHERE status='review' ORDER BY path"
+        "SELECT id, root, path, age_status, kind, caption, error FROM images "
+        "WHERE status='review' ORDER BY path"
     ):
         extra = f"  [{r['error']}]" if r["error"] else ""
-        print(f"{r['age_status'] or '?':7} {r['kind']:5} {r['path']}{extra}")
+        print(f"{r['id']:4} {r['age_status'] or '?':7} {r['kind']:5} {nc_display_path(r)}{extra}")
+        if r["caption"]:
+            print(f"      {r['caption'][:160]}")
+
+
+def cmd_approve(args) -> None:
+    from phototag.review_queue import approve_image, list_review_rows
+
+    con = connect()
+    ids: list[int] = []
+    if args.all:
+        ids = [r["id"] for r in list_review_rows(con)[: args.limit or 9999]]
+    elif args.id:
+        ids = [args.id]
+    else:
+        sys.exit("approve: --id N oder --all angeben")
+    ok = err = 0
+    for iid in ids:
+        try:
+            approve_image(con, iid, push_nc=args.push, tags=args.tags or None)
+            ok += 1
+            print(f"OK id={iid}")
+        except (LookupError, ValueError) as exc:
+            err += 1
+            print(f"FEHLER id={iid}: {exc}", file=sys.stderr)
+    print(f"-- {ok} freigegeben, {err} Fehler")
+
+
+def cmd_serve(_args) -> None:
+    from phototag.admin_app import run_server
+
+    run_server()
 
 
 def cmd_reindex(_args) -> None:
@@ -762,9 +810,27 @@ def main() -> None:
     q.add_argument("--tag", action="append"); q.add_argument("--folder", default=""); q.add_argument("--kind", choices=["image", "video"])
     q.add_argument("--limit", type=int, default=50); q.add_argument("--nextcloud", default="")
     q.add_argument("--export-thumbs", default=""); q.set_defaults(fn=cmd_search)
-    th = sub.add_parser("thumb"); th.add_argument("path"); th.add_argument("out"); th.set_defaults(fn=cmd_thumb)
+    th = sub.add_parser("thumb")
+    th.add_argument("path", nargs="?", default="")
+    th.add_argument("out", nargs="?", default="")
+    th.add_argument("--id", type=int, default=0, help="DB-id (z. B. aus phototag review)")
+    th.set_defaults(fn=cmd_thumb)
     sub.add_parser("stats").set_defaults(fn=cmd_stats)
-    sub.add_parser("review").set_defaults(fn=cmd_review)
+    rv = sub.add_parser("review")
+    rv.add_argument(
+        "--backfill-captions",
+        action="store_true",
+        help="caption aus model_raw für review-Zeilen nachziehen",
+    )
+    rv.set_defaults(fn=cmd_review)
+    ap = sub.add_parser("approve", help="Review manuell freigeben (optional push-nc)")
+    ap.add_argument("--id", type=int, default=0)
+    ap.add_argument("--all", action="store_true")
+    ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--push", action="store_true", help="Nach Freigabe push-nc für diese Datei(en)")
+    ap.add_argument("--tag", action="append", dest="tags", help="Tags statt Vorschlag aus model_raw")
+    ap.set_defaults(fn=cmd_approve)
+    sub.add_parser("serve", help="Review-Admin-UI (Flask, nur lokal + PHOTOTAG_ADMIN_TOKEN)").set_defaults(fn=cmd_serve)
     sub.add_parser("reindex").set_defaults(fn=cmd_reindex)
     sub.add_parser("version", help="Installierte Paketversion (pyproject / pip -e)").set_defaults(fn=cmd_version)
     pn = sub.add_parser("push-nc", help="Tags als Nextcloud-Schlagworte (Systemtags) setzen")

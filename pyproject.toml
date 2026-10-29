@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "phototag"
-version = "0.3.24"
+version = "0.3.25"
 description = "Local photo and video tagging with a vision LLM and SQLite"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,6 +13,7 @@ dependencies = ["pillow>=10.0.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+admin = ["flask>=3.0"]
 
 [project.scripts]
 phototag = "phototag.cli:main"
@@ -22,7 +23,7 @@ where = ["."]
 include = ["phototag*"]
 
 [tool.setuptools.package-data]
-phototag = ["categories.example.txt"]
+phototag = ["categories.example.txt", "static/admin/*", "templates/admin/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
