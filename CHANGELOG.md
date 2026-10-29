@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.3.30
+
+- **Admin-UI:** grösseres Caption-Feld; **Ordner durchsuchen** (OF-Breadcrumb, Unterordner, Filter: alle / Review / mit Tags / ohne Tags). API: `/api/browse`, `/api/browse/folders`.
+
 ## 0.3.29
 
 - **Admin-Dienst:** gunicorn ohne `--factory` (`phototag.admin_app:application`); **`run-admin-wsgi.sh`** bindet LAN (`PHOTOTAG_ADMIN_SERVICE_BIND`), sicheres **`source phototag.env`**; Preflight vor Start. **`install-admin-service.sh`** zeigt journal bei Fehler. **`update-from-github.sh`:** `chmod +x` auf Skripte.

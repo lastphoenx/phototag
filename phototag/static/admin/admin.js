@@ -1,10 +1,15 @@
 (function () {
   let tagCatalog = [];
+  let browseFolder = "";
 
   function setStatus(msg, isErr) {
     const el = document.getElementById("statusLine");
     el.textContent = msg;
     el.className = "status" + (isErr ? " err" : "");
+  }
+
+  function isBrowseMode() {
+    return document.getElementById("viewMode").value === "browse";
   }
 
   async function api(path, opts) {
@@ -37,7 +42,20 @@
     img.src = URL.createObjectURL(blob);
   }
 
-  function renderTagEditor(container, initialTags, allowed) {
+  function renderTagEditor(container, initialTags, allowed, readOnly) {
+    if (readOnly) {
+      const chips = document.createElement("div");
+      chips.className = "tags";
+      (initialTags || []).sort().forEach((t) => {
+        const s = document.createElement("span");
+        s.className = "tag";
+        s.textContent = t;
+        chips.appendChild(s);
+      });
+      container.appendChild(chips);
+      return () => [...(initialTags || [])];
+    }
+
     const state = new Set(initialTags);
     const wrap = document.createElement("div");
     wrap.className = "tag-editor";
@@ -94,6 +112,7 @@
   }
 
   function renderItem(item) {
+    const inReview = item.in_review || item.status === "review";
     const card = document.createElement("article");
     card.className = "card";
     card.dataset.id = item.id;
@@ -111,62 +130,69 @@
 
     const meta = document.createElement("div");
     meta.className = "meta";
-    meta.textContent =
-      "age_status: " +
-      (item.age_status || "?") +
-      (item.sanitize_flags && item.sanitize_flags.length
-        ? "  ·  flags: " + item.sanitize_flags.join(", ")
-        : "");
+    const badge = document.createElement("span");
+    badge.className = "status-badge" + (inReview ? " review" : item.status === "tagged" ? " tagged" : "");
+    badge.textContent = item.status || "?";
+    meta.append(badge, document.createTextNode("  age_status: " + (item.age_status || "?")));
+    if (item.sanitize_flags && item.sanitize_flags.length) {
+      meta.append(document.createTextNode("  ·  flags: " + item.sanitize_flags.join(", ")));
+    }
 
     const capLabel = document.createElement("label");
     capLabel.textContent = "Caption";
     const capArea = document.createElement("textarea");
     capArea.className = "caption-edit";
-    capArea.rows = 2;
+    capArea.rows = 5;
     capArea.value = item.caption || "";
+    if (!inReview) {
+      capArea.readOnly = true;
+    }
 
     const tagBlock = document.createElement("div");
-    const getTags = renderTagEditor(tagBlock, item.proposed_tags || [], tagCatalog);
+    const tagList = item.proposed_tags || item.tags || [];
+    const getTags = renderTagEditor(tagBlock, tagList, tagCatalog, !inReview);
 
     const actions = document.createElement("div");
     actions.className = "actions";
 
-    const approveBtn = document.createElement("button");
-    approveBtn.className = "ok";
-    approveBtn.textContent = "Freigeben";
-    approveBtn.onclick = async () => {
-      try {
-        const tags = getTags();
-        if (!tags.length) {
-          setStatus("Mindestens ein Tag nötig", true);
-          return;
+    if (inReview) {
+      const approveBtn = document.createElement("button");
+      approveBtn.className = "ok";
+      approveBtn.textContent = "Freigeben";
+      approveBtn.onclick = async () => {
+        try {
+          const tags = getTags();
+          if (!tags.length) {
+            setStatus("Mindestens ein Tag nötig", true);
+            return;
+          }
+          const push = document.getElementById("pushAfter").checked;
+          await api("/api/review/" + item.id + "/approve?push=" + (push ? "1" : "0"), {
+            method: "POST",
+            body: JSON.stringify({ tags, caption: capArea.value.trim() }),
+          });
+          card.remove();
+          setStatus("Freigegeben: " + item.nc_path);
+        } catch (e) {
+          setStatus(String(e.message || e), true);
         }
-        const push = document.getElementById("pushAfter").checked;
-        await api("/api/review/" + item.id + "/approve?push=" + (push ? "1" : "0"), {
-          method: "POST",
-          body: JSON.stringify({ tags, caption: capArea.value.trim() }),
-        });
-        card.remove();
-        setStatus("Freigegeben: " + item.nc_path);
-      } catch (e) {
-        setStatus(String(e.message || e), true);
-      }
-    };
+      };
 
-    const skipBtn = document.createElement("button");
-    skipBtn.className = "warn";
-    skipBtn.textContent = "Überspringen";
-    skipBtn.onclick = async () => {
-      if (!confirm("Aus Review entfernen (status=new)?")) return;
-      try {
-        await api("/api/review/" + item.id + "/skip", { method: "POST" });
-        card.remove();
-      } catch (e) {
-        setStatus(String(e.message || e), true);
-      }
-    };
+      const skipBtn = document.createElement("button");
+      skipBtn.className = "warn";
+      skipBtn.textContent = "Überspringen";
+      skipBtn.onclick = async () => {
+        if (!confirm("Aus Review entfernen (status=new)?")) return;
+        try {
+          await api("/api/review/" + item.id + "/skip", { method: "POST" });
+          card.remove();
+        } catch (e) {
+          setStatus(String(e.message || e), true);
+        }
+      };
+      actions.append(approveBtn, skipBtn);
+    }
 
-    actions.append(approveBtn, skipBtn);
     body.append(path, meta, capLabel, capArea, tagBlock, actions);
     card.append(img, body);
     return card;
@@ -189,6 +215,64 @@
     });
   }
 
+  function renderBreadcrumb() {
+    const nav = document.getElementById("breadcrumb");
+    nav.innerHTML = "";
+    const parts = browseFolder ? browseFolder.split("/") : [];
+
+    const rootBtn = document.createElement("button");
+    rootBtn.type = "button";
+    rootBtn.className = "link";
+    rootBtn.textContent = "OF";
+    rootBtn.onclick = () => {
+      browseFolder = "";
+      loadBrowse();
+    };
+    nav.appendChild(rootBtn);
+
+    let acc = "";
+    parts.forEach((seg) => {
+      const sep = document.createElement("span");
+      sep.className = "sep";
+      sep.textContent = "/";
+      nav.appendChild(sep);
+      acc = acc ? acc + "/" + seg : seg;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "link";
+      btn.textContent = seg;
+      const pathHere = acc;
+      btn.onclick = () => {
+        browseFolder = pathHere;
+        loadBrowse();
+      };
+      nav.appendChild(btn);
+    });
+  }
+
+  async function loadSubfolders() {
+    const box = document.getElementById("subfolders");
+    box.innerHTML = "";
+    const data = await api("/api/browse/folders?folder=" + encodeURIComponent(browseFolder));
+    if (!data.folders.length) {
+      box.classList.add("hidden");
+      return;
+    }
+    box.classList.remove("hidden");
+    data.folders.forEach((f) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "folder-pick";
+      const name = f.includes("/") ? f.split("/").pop() : f;
+      b.textContent = "📁 " + name;
+      b.onclick = () => {
+        browseFolder = f;
+        loadBrowse();
+      };
+      box.appendChild(b);
+    });
+  }
+
   async function loadQueue() {
     setStatus("Lade Review …");
     await loadCatalog();
@@ -203,8 +287,59 @@
     setStatus(data.count + " in Review — Tags anpassen, dann Freigeben.");
   }
 
-  document.getElementById("reloadBtn").onclick = () =>
-    loadQueue().catch((e) => setStatus(e.message, true));
+  async function loadBrowse() {
+    setStatus("Lade Ordner …");
+    await loadCatalog();
+    renderBreadcrumb();
+    await loadSubfolders();
+    const filter = document.getElementById("browseFilter").value;
+    const data = await api(
+      "/api/browse?folder=" +
+        encodeURIComponent(browseFolder) +
+        "&filter=" +
+        encodeURIComponent(filter)
+    );
+    const q = document.getElementById("queue");
+    q.innerHTML = "";
+    const where = browseFolder ? browseFolder + "/" : "OF/";
+    if (!data.items.length) {
+      setStatus("Keine Treffer in " + where + " (Filter: " + filter + ").");
+      return;
+    }
+    data.items.forEach((item) => q.appendChild(renderItem(item)));
+    setStatus(
+      data.total +
+        " Datei(en) in " +
+        (browseFolder || "OF") +
+        ", Filter «" +
+        filter +
+        "» — " +
+        data.count +
+        " angezeigt."
+    );
+  }
 
-  loadQueue().catch((e) => setStatus(e.message, true));
+  function syncBrowseChrome() {
+    const browse = isBrowseMode();
+    document.getElementById("folderNav").classList.toggle("hidden", !browse);
+    document.getElementById("filterWrap").classList.toggle("hidden", !browse);
+    document.getElementById("subfolders").classList.toggle("hidden", !browse);
+  }
+
+  function reload() {
+    syncBrowseChrome();
+    if (isBrowseMode()) {
+      return loadBrowse().catch((e) => setStatus(e.message, true));
+    }
+    return loadQueue().catch((e) => setStatus(e.message, true));
+  }
+
+  document.getElementById("viewMode").onchange = reload;
+  document.getElementById("browseFilter").onchange = () => {
+    if (isBrowseMode()) loadBrowse().catch((e) => setStatus(e.message, true));
+  };
+  document.getElementById("reloadBtn").onclick = reload;
+
+  syncBrowseChrome();
+  reload();
 })();

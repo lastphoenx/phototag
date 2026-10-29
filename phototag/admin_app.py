@@ -14,6 +14,13 @@ from phototag.config import (
     verify_admin_password,
 )
 from phototag.review_queue import approve_image, list_review_rows, row_to_api_dict, skip_review
+from phototag.admin_browse import (
+    browse_row_to_api_dict,
+    list_browse_rows,
+    list_child_folders,
+    normalize_folder,
+    resolve_images_root,
+)
 
 _PKG = Path(__file__).resolve().parent
 _STATIC = _PKG / "static" / "admin"
@@ -125,6 +132,41 @@ def create_app():
         allowed = {t for t, _ in load_categories()}
         items = [row_to_api_dict(r, allowed) for r in list_review_rows(con)]
         return jsonify({"items": items, "count": len(items)})
+
+    @app.get("/api/browse/folders")
+    def api_browse_folders():
+        _check_api_auth()
+        from phototag.cli import connect
+
+        con = connect()
+        root = resolve_images_root(con)
+        parent = normalize_folder(request.args.get("folder", "") or "")
+        folders = list_child_folders(con, root, parent)
+        return jsonify({"folder": parent, "root": root, "folders": folders})
+
+    @app.get("/api/browse")
+    def api_browse_list():
+        _check_api_auth()
+        from phototag.cli import connect, load_categories
+
+        con = connect()
+        root = resolve_images_root(con)
+        folder = normalize_folder(request.args.get("folder", "") or "")
+        filter_key = (request.args.get("filter") or "all").strip().lower()
+        limit = request.args.get("limit", 80, type=int)
+        offset = request.args.get("offset", 0, type=int)
+        allowed = {t for t, _ in load_categories()}
+        rows, total = list_browse_rows(con, root, folder, filter_key, limit=limit, offset=offset)
+        items = [browse_row_to_api_dict(con, r, allowed) for r in rows]
+        return jsonify(
+            {
+                "items": items,
+                "count": len(items),
+                "total": total,
+                "folder": folder,
+                "filter": filter_key,
+            }
+        )
 
     @app.get("/api/images/<int:image_id>/thumb")
     def api_thumb(image_id: int):

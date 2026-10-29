@@ -119,6 +119,7 @@ button.warn { background: #4a3a18; border-color: #6b5420; color: var(--warn); }
 .actions { display: flex; gap: 0.5rem; margin-top: auto; padding-top: 0.5rem; }
 .caption-edit {
   width: 100%;
+  min-height: 7.5rem;
   font-size: 0.85rem;
   padding: 0.4rem;
   border-radius: 6px;
@@ -126,7 +127,60 @@ button.warn { background: #4a3a18; border-color: #6b5420; color: var(--warn); }
   background: var(--bg);
   color: var(--text);
   resize: vertical;
+  line-height: 1.4;
 }
+.browse-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+  padding: 0.5rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: #121820;
+  font-size: 0.9rem;
+}
+.browse-bar label { display: flex; align-items: center; gap: 0.4rem; color: var(--muted); }
+.browse-bar select {
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+.folder-nav { flex: 1 1 100%; }
+.breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+}
+.breadcrumb button.link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  padding: 0.15rem 0.25rem;
+  text-decoration: underline;
+}
+.breadcrumb .sep { color: var(--muted); }
+.subfolders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.5rem 1.25rem 0;
+}
+.subfolders button.folder-pick {
+  font-size: 0.85rem;
+  padding: 0.3rem 0.65rem;
+}
+.status-badge {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: #243044;
+  color: var(--muted);
+}
+.status-badge.review { color: var(--warn); }
+.status-badge.tagged { color: var(--ok); }
 .tag-editor { display: flex; flex-direction: column; gap: 0.4rem; }
 .tag.removable { cursor: pointer; }
 .add-tag { display: flex; gap: 0.35rem; }
