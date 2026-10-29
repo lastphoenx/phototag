@@ -2,6 +2,11 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.1
+
+- **Review-UI:** API liefert wieder `status`/`in_review` — Freigeben, Überspringen, Tag-Editor in der Review-Queue. Browse: gleiche Buttons bei `status=review`.
+- **KI taggen:** sichtbarer Busy-Zustand (Karte, Button «KI läuft …»), nur ein Lauf gleichzeitig.
+
 ## 0.5.0
 
 - **KI-Tagging aus Admin-UI:** pro Datei **KI taggen** (sync, langer gunicorn-Timeout); **Ordner KI-taggen** startet Hintergrund-Job (`POST /api/tag/jobs`, Fortschritt per Poll). CLI: **`phototag tag --folder`**, **`--nc-path`**, **`--no-recursive`**. Jobs: `tag-job-run` (Subprozess, Log unter `state/tag-job-*.log`).

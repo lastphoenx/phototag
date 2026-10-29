@@ -194,6 +194,15 @@ button.warn { background: #4a3a18; border-color: #6b5420; color: var(--warn); }
 .job-panel.hidden { display: none; }
 .job-panel strong { color: var(--text); }
 #tagFolderBtn { font-size: 0.85rem; margin-left: 0.5rem; }
+.card.ki-busy { outline: 2px solid var(--warn); outline-offset: 2px; }
+button.ki-busy, button:disabled.ki-busy {
+  opacity: 0.85;
+  cursor: wait;
+  background: #3a4a28;
+  border-color: var(--warn);
+  color: var(--text);
+}
+#tagFolderBtn.ki-busy { background: #3a4a28; }
 .tag-editor { display: flex; flex-direction: column; gap: 0.4rem; }
 .tag.removable { cursor: pointer; }
 .add-tag { display: flex; gap: 0.35rem; }

@@ -6,7 +6,7 @@ import json
 import pytest
 
 from phototag.cli import connect
-from phototag.review_queue import approve_image, backfill_review_captions, nc_display_path
+from phototag.review_queue import approve_image, backfill_review_captions, nc_display_path, row_to_api_dict
 
 
 @pytest.fixture
@@ -66,6 +66,30 @@ def test_approve_review_with_custom_tags(env_db):
     assert row["caption"] == "Test caption"
     tags = [r[0] for r in con.execute("SELECT tag FROM tags WHERE image_id=?", (iid,))]
     assert tags == ["breasts", "indoor"]
+
+
+def test_row_to_api_dict_marks_review(env_db):
+    con = connect()
+    con.execute(
+        "INSERT INTO images(root,path,folder,kind,status,age_status,model_raw) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (
+            "/mnt/of",
+            "c.jpg",
+            "",
+            "image",
+            "review",
+            "unsure",
+            '{"age_status":"unsure","tags":["outdoor"],"caption":"x"}',
+        ),
+    )
+    con.commit()
+    row = con.execute("SELECT * FROM images").fetchone()
+    allowed = {"outdoor", "indoor", "breasts"}
+    d = row_to_api_dict(row, allowed)
+    assert d["status"] == "review"
+    assert d["in_review"] is True
+    assert "outdoor" in d["proposed_tags"]
 
 
 def test_backfill_captions(env_db):

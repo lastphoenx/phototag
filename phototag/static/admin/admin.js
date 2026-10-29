@@ -2,6 +2,8 @@
   let tagCatalog = [];
   let browseFolder = "";
   let jobPollTimer = null;
+  /** @type {Set<string>} */
+  const kiTagActive = new Set();
 
   function setStatus(msg, isErr) {
     const el = document.getElementById("statusLine");
@@ -126,8 +128,113 @@
     return () => [...state];
   }
 
+  function appendReviewActions(actions, ctx) {
+    const { item, card, badge, getTags, capArea } = ctx;
+    if (!item.id) return;
+    const inReview = item.in_review || item.status === "review";
+    if (!inReview) return;
+
+    const approveBtn = document.createElement("button");
+    approveBtn.className = "ok";
+    approveBtn.textContent = "Freigeben";
+    approveBtn.onclick = async () => {
+      try {
+        const tags = getTags();
+        if (!tags.length) {
+          setStatus("Mindestens ein Tag nötig", true);
+          return;
+        }
+        const push = document.getElementById("pushAfter").checked;
+        await api("/api/review/" + item.id + "/approve?push=" + (push ? "1" : "0"), {
+          method: "POST",
+          body: JSON.stringify({ tags, caption: capArea.value.trim() }),
+        });
+        card.remove();
+        setStatus("Freigegeben: " + item.nc_path);
+      } catch (e) {
+        setStatus(String(e.message || e), true);
+      }
+    };
+
+    const skipBtn = document.createElement("button");
+    skipBtn.className = "warn";
+    skipBtn.textContent = "Überspringen";
+    skipBtn.onclick = async () => {
+      if (!confirm("Aus Review entfernen (status=new)?")) return;
+      try {
+        await api("/api/review/" + item.id + "/skip", { method: "POST" });
+        card.remove();
+      } catch (e) {
+        setStatus(String(e.message || e), true);
+      }
+    };
+    actions.append(approveBtn, skipBtn);
+  }
+
+  function setKiTagBusy(card, tagBtn, ncPath, busy) {
+    if (busy) {
+      kiTagActive.add(ncPath);
+      card.classList.add("ki-busy");
+      tagBtn.disabled = true;
+      tagBtn.classList.add("ki-busy");
+      tagBtn.textContent = "KI läuft …";
+    } else {
+      kiTagActive.delete(ncPath);
+      card.classList.remove("ki-busy");
+      tagBtn.disabled = false;
+      tagBtn.classList.remove("ki-busy");
+      tagBtn.textContent = "KI taggen";
+    }
+    document.querySelectorAll(".card .actions button").forEach((btn) => {
+      if (btn.textContent === "KI taggen" || btn.classList.contains("ki-busy")) {
+        btn.disabled = kiTagActive.size > 0;
+        if (!btn.classList.contains("ki-busy") && kiTagActive.size > 0) {
+          btn.title = "Warte auf laufendes KI-Tagging …";
+        } else {
+          btn.removeAttribute("title");
+        }
+      }
+    });
+  }
+
+  async function runKiTagOne(item, ctx) {
+    const { card, tagBtn, badge, capArea, tagBlock, getTagsRef } = ctx;
+    const ncPath = item.nc_path;
+    if (kiTagActive.has(ncPath)) return;
+    setKiTagBusy(card, tagBtn, ncPath, true);
+    setStatus("KI-Tagging … " + ncPath + " (kann mehrere Minuten dauern)");
+    try {
+      const retag = document.getElementById("tagRetag")?.checked;
+      const res = await api("/api/tag/one", {
+        method: "POST",
+        body: JSON.stringify({ nc_path: ncPath, retag: !!retag }),
+      });
+      if (res.skipped) {
+        setStatus(res.message || "Übersprungen");
+      } else if (res.ok) {
+        badge.textContent = res.status || "ok";
+        if (res.caption) capArea.value = res.caption;
+        item.status = res.status;
+        item.in_review = res.status === "review";
+        if (res.proposed_tags || res.tags) {
+          tagBlock.innerHTML = "";
+          const tags = res.proposed_tags || res.tags || [];
+          const getTags = renderTagEditor(tagBlock, tags, tagCatalog, false);
+          if (getTagsRef) getTagsRef.current = getTags;
+        }
+        setStatus("KI fertig: " + ncPath + " → " + (res.status || ""));
+      } else {
+        setStatus(res.error || "Fehler", true);
+      }
+    } catch (e) {
+      setStatus(String(e.message || e), true);
+    } finally {
+      setKiTagBusy(card, tagBtn, ncPath, false);
+    }
+  }
+
   function renderMountItem(item) {
-    const inReview = item.in_review;
+    const inReview = item.in_review || item.status === "review";
     const card = document.createElement("article");
     card.className = "card";
     if (item.id) card.dataset.id = item.id;
@@ -212,49 +319,19 @@
 
     const tagBtn = document.createElement("button");
     tagBtn.textContent = "KI taggen";
-    tagBtn.onclick = async () => {
-      tagBtn.disabled = true;
-      setStatus("KI-Tagging … " + item.nc_path + " ( kann Minuten dauern )");
-      try {
-        const retag = document.getElementById("tagRetag")?.checked;
-        const res = await api("/api/tag/one", {
-          method: "POST",
-          body: JSON.stringify({ nc_path: item.nc_path, retag: !!retag }),
-        });
-        if (res.skipped) {
-          setStatus(res.message || "Übersprungen");
-        } else if (res.ok) {
-          badge.textContent = res.status || "ok";
-          if (res.caption) capArea.value = res.caption;
-          setStatus("KI fertig: " + item.nc_path + " → " + (res.status || ""));
-          loadBrowse().catch(() => {});
-        } else {
-          setStatus(res.error || "Fehler", true);
-        }
-      } catch (e) {
-        setStatus(String(e.message || e), true);
-      } finally {
-        tagBtn.disabled = false;
-      }
-    };
+    const getTagsRef = { current: getTags };
+    tagBtn.onclick = () =>
+      runKiTagOne(item, {
+        card,
+        tagBtn,
+        badge,
+        capArea,
+        tagBlock,
+        getTagsRef,
+      });
     actions.append(tagBtn);
 
-    if (inReview && item.id) {
-      const skipBtn = document.createElement("button");
-      skipBtn.className = "warn";
-      skipBtn.textContent = "Review entfernen";
-      skipBtn.onclick = async () => {
-        if (!confirm("Aus Review entfernen (status=new)?")) return;
-        try {
-          await api("/api/review/" + item.id + "/skip", { method: "POST" });
-          badge.textContent = "new";
-          item.in_review = false;
-        } catch (e) {
-          setStatus(String(e.message || e), true);
-        }
-      };
-      actions.append(skipBtn);
-    }
+    appendReviewActions(actions, { item, card, badge, getTags: () => getTagsRef.current(), capArea });
 
     body.append(path, meta, capLabel, capArea, tagBlock, actions);
     card.append(img, body);
@@ -305,43 +382,7 @@
     const actions = document.createElement("div");
     actions.className = "actions";
 
-    if (inReview) {
-      const approveBtn = document.createElement("button");
-      approveBtn.className = "ok";
-      approveBtn.textContent = "Freigeben";
-      approveBtn.onclick = async () => {
-        try {
-          const tags = getTags();
-          if (!tags.length) {
-            setStatus("Mindestens ein Tag nötig", true);
-            return;
-          }
-          const push = document.getElementById("pushAfter").checked;
-          await api("/api/review/" + item.id + "/approve?push=" + (push ? "1" : "0"), {
-            method: "POST",
-            body: JSON.stringify({ tags, caption: capArea.value.trim() }),
-          });
-          card.remove();
-          setStatus("Freigegeben: " + item.nc_path);
-        } catch (e) {
-          setStatus(String(e.message || e), true);
-        }
-      };
-
-      const skipBtn = document.createElement("button");
-      skipBtn.className = "warn";
-      skipBtn.textContent = "Überspringen";
-      skipBtn.onclick = async () => {
-        if (!confirm("Aus Review entfernen (status=new)?")) return;
-        try {
-          await api("/api/review/" + item.id + "/skip", { method: "POST" });
-          card.remove();
-        } catch (e) {
-          setStatus(String(e.message || e), true);
-        }
-      };
-      actions.append(approveBtn, skipBtn);
-    }
+    appendReviewActions(actions, { item, card, badge, getTags, capArea });
 
     body.append(path, meta, capLabel, capArea, tagBlock, actions);
     card.append(img, body);
@@ -495,6 +536,10 @@
     const retag = document.getElementById("tagRetag").checked;
     const recursive = document.getElementById("tagRecursive").checked;
     if (!confirm("KI-Tagging für Ordner «" + (folder || "OF") + "» starten?")) return;
+    const folderBtn = document.getElementById("tagFolderBtn");
+    folderBtn.disabled = true;
+    folderBtn.classList.add("ki-busy");
+    folderBtn.textContent = "Job startet …";
     try {
       const data = await api("/api/tag/jobs", {
         method: "POST",
@@ -509,6 +554,10 @@
       pollTagJob(data.job.id);
     } catch (e) {
       setStatus(String(e.message || e), true);
+    } finally {
+      folderBtn.disabled = false;
+      folderBtn.classList.remove("ki-busy");
+      folderBtn.textContent = "Ordner KI-taggen";
     }
   }
 

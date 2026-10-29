@@ -53,6 +53,8 @@ def row_to_api_dict(row: sqlite3.Row, allowed: set[str]) -> dict[str, Any]:
         "nc_path": nc_display_path(row),
         "root": row["root"],
         "kind": row["kind"],
+        "status": "review",
+        "in_review": True,
         "age_status": row["age_status"],
         "caption": cap,
         "error": row["error"],
