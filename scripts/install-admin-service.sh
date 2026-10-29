@@ -30,8 +30,8 @@ if [[ -z "$ap" && -z "$ah" ]]; then
 fi
 
 if grep -E '^[[:space:]]*PHOTOTAG_ADMIN_BIND=127\.0\.0\.1' "$ENV_FILE" >/dev/null 2>&1; then
-  echo "WARNUNG: PHOTOTAG_ADMIN_BIND=127.0.0.1 in phototag.env — PC im LAN erreicht die UI nicht."
-  echo "  Empfehlung: PHOTOTAG_ADMIN_BIND=0.0.0.0 (oder Zeile entfernen, systemd setzt 0.0.0.0)."
+  echo "Hinweis: phototag.env PHOTOTAG_ADMIN_BIND=127.0.0.1 — gilt nur fuer manuelles «phototag serve»."
+  echo "  systemd/run-admin-wsgi.sh lauscht trotzdem auf 0.0.0.0 (LAN)."
 fi
 
 install -m 644 "$UNIT_SRC" "$UNIT_DST"
@@ -44,7 +44,7 @@ if ! systemctl is-active --quiet phototag-admin.service; then
   echo "FEHLER: phototag-admin.service startet nicht. Letzte Logs:" >&2
   journalctl -u phototag-admin.service -n 40 --no-pager >&2 || true
   echo "" >&2
-  echo "Manuell testen: ${INSTALL_DIR}/scripts/run-admin-wsgi.sh" >&2
+  echo "Manuell testen (nur wenn Dienst gestoppt): systemctl stop phototag-admin.service && ${INSTALL_DIR}/scripts/run-admin-wsgi.sh" >&2
   exit 1
 fi
 
