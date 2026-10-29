@@ -15,3 +15,8 @@ document: Screenshot, Text, Formular
 event: Feier, Konzert, Versammlung
 night: Nachtaufnahme oder wenig Licht
 black_and_white: Schwarzweiss oder stark entsättigt
+
+# --- Kleidung (Beispiele — in lokaler categories.txt ergänzen) ---
+kleid: Kleid sichtbar getragen
+rock: Rock (auch Minirock, wenn nicht minirock)
+minirock: kurzer Rock oberhalb Knie

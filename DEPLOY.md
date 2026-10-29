@@ -124,6 +124,8 @@ Hash erzeugen (einmal auf dem CT):
 
 **KI-Tagging (ab 0.5.0):** In der Browse-Ansicht **KI taggen** (einzelne Datei, blockiert bis Modell fertig — gunicorn **`--timeout 600`**, Standard **1 Worker**). **Ordner KI-taggen** legt einen Job an und startet `python -m phototag tag-job-run <id>` im Hintergrund; Fortschritt in der UI, Log: **`state/tag-job-<id>.log`**. CLI parallel: `phototag tag --folder 'Unterordner' [--no-recursive]`, `phototag tag --nc-path 'foo.jpg'`. Option **Neu taggen (retag)** auch für bereits **tagged** Dateien.
 
+**Datenbank / Thumbs:** phototag nutzt **SQLite** (`PHOTOTAG_DB`) — keine PostgreSQL/Redis im Projekt. Vorschaubilder liegen als BLOB in `images.thumb` (beim Index/KI); die Admin-UI setzt **HTTP-Cache** auf Thumb-URLs (ab 0.5.3). Tags kommen aus **`categories.txt`** (lokal auf dem CT, z. B. `kleid`, `rock`, `minirock` — nach Ergänzung `systemctl restart phototag-admin.service` oder Seite neu laden).
+
 ## 5. Nacht-Lauf (optional, noch manuell aktivieren)
 
 **Im Repo:** nur Vorlagen — **auf CT 142 ist kein systemd-Timer automatisch installiert**, bis du `cp` + `enable` ausführst. Prüfen: `systemctl status phototag-night.timer` (wenn „not found“ → noch nicht eingerichtet).

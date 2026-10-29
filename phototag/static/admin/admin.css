@@ -96,6 +96,7 @@ button.warn { background: #4a3a18; border-color: #6b5420; color: var(--warn); }
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 .card img {
   width: 100%;
@@ -201,9 +202,41 @@ button.tag.removable:hover { border-color: var(--warn); }
 .job-panel.hidden { display: none; }
 .job-panel strong { color: var(--text); }
 #tagFolderBtn { font-size: 0.85rem; margin-left: 0.5rem; }
-.card.ki-queued { outline: 1px dashed var(--muted); }
-.card.ki-busy { outline: 2px solid var(--warn); outline-offset: 2px; }
-button.ki-queued { opacity: 0.75; font-size: 0.8rem; }
+.card.ki-queued {
+  outline: 2px dashed var(--warn);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 1px rgba(240, 180, 41, 0.25);
+}
+.card.ki-busy {
+  outline: 3px solid var(--warn);
+  outline-offset: 2px;
+  box-shadow: 0 0 12px rgba(240, 180, 41, 0.45);
+  animation: ki-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ki-pulse {
+  50% { box-shadow: 0 0 18px rgba(240, 180, 41, 0.65); }
+}
+.ki-state {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  z-index: 2;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
+  background: rgba(240, 180, 41, 0.92);
+  color: #1a1200;
+  pointer-events: none;
+}
+.ki-state.hidden { display: none; }
+button.ki-queued {
+  opacity: 1;
+  font-size: 0.78rem;
+  background: #4a3a18;
+  border-color: var(--warn);
+  color: var(--warn);
+}
 button.ki-busy, button:disabled.ki-busy {
   opacity: 0.85;
   cursor: wait;
@@ -223,4 +256,22 @@ button.ki-busy, button:disabled.ki-busy {
   background: var(--bg);
   color: var(--text);
   font-size: 0.85rem;
+}
+.tag-pick-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  max-height: 6rem;
+  overflow-y: auto;
+}
+.tag-pick-list button.tag-pick {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.4rem;
+  background: #1a2838;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.tag-hint {
+  font-size: 0.72rem;
+  color: var(--muted);
 }

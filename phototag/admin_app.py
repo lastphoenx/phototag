@@ -198,7 +198,9 @@ def create_app():
         blob = thumb_bytes_for_nc(con, nc_path)
         if not blob:
             abort(404)
-        return app.response_class(blob, mimetype="image/jpeg")
+        resp = app.response_class(blob, mimetype="image/jpeg")
+        resp.headers["Cache-Control"] = "private, max-age=86400"
+        return resp
 
     @app.post("/api/browse/save")
     def api_browse_save():
@@ -311,7 +313,9 @@ def create_app():
         row = con.execute("SELECT thumb FROM images WHERE id=?", (image_id,)).fetchone()
         if not row or not row["thumb"]:
             abort(404)
-        return app.response_class(row["thumb"], mimetype="image/jpeg")
+        resp = app.response_class(row["thumb"], mimetype="image/jpeg")
+        resp.headers["Cache-Control"] = "private, max-age=86400"
+        return resp
 
     @app.post("/api/review/<int:image_id>/approve")
     def api_approve(image_id: int):

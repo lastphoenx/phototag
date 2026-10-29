@@ -2,6 +2,12 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.3
+
+- **Tag-UI:** Eingabe vor Speichern/Freigabe übernehmen; mehrere Tags (Komma/Leerzeichen); klickbare Vorschläge aus `/api/tags` (categories.txt). Review-**Speichern** nutzt dieselbe Freigabe-API wie **Freigeben** (inkl. push-nc).
+- **KI-Warteschlange:** deutliche Rahmen/Badge «Warteschlange 2/5» vs «KI aktiv 2/5»; Job-Panel zeigt aktuelle Datei.
+- **Thumbs:** Browser-Cache (`Cache-Control` 24h), direkte Thumb-URLs (kein Blob pro Reload). **DB:** weiter SQLite (+ Thumb-BLOB in `images.thumb`) — kein Redis/PostgreSQL im Stack.
+
 ## 0.5.2
 
 - **Review-UI:** Queue-Ansicht erzwingt editierbare Tags + Freigeben/Überspringen (unabhängig von API-Feldern); Cache-Bust auf `admin.js`/`admin.css` via Versions-Query.

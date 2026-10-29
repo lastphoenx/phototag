@@ -8,6 +8,37 @@
   let kiPendingNc = new Map();
   let kiFlushTimer = null;
   let kiJobRunning = false;
+  /** @type {string[]} */
+  let kiJobOrder = [];
+
+  async function withBusyButton(btn, busyLabel, fn) {
+    const prev = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = busyLabel;
+    try {
+      return await fn();
+    } finally {
+      btn.disabled = false;
+      btn.textContent = prev;
+    }
+  }
+
+  async function persistImageTags(item, tags, caption, push) {
+    if ((item.in_review || item.status === "review") && item.id) {
+      return api("/api/review/" + item.id + "/approve?push=" + (push ? "1" : "0"), {
+        method: "POST",
+        body: JSON.stringify({ tags, caption }),
+      });
+    }
+    return api("/api/browse/save?push=" + (push ? "1" : "0"), {
+      method: "POST",
+      body: JSON.stringify({
+        nc_path: item.nc_path,
+        tags,
+        caption,
+      }),
+    });
+  }
 
   function setStatus(msg, isErr) {
     const el = document.getElementById("statusLine");
@@ -39,28 +70,13 @@
   }
 
   async function loadThumb(img, id) {
-    const res = await fetch("/api/images/" + id + "/thumb", { credentials: "same-origin" });
-    if (res.status === 401) {
-      window.location.href = "/login";
-      return;
-    }
-    if (!res.ok) return;
-    const blob = await res.blob();
-    img.src = URL.createObjectURL(blob);
+    img.src = "/api/images/" + id + "/thumb";
+    img.loading = "lazy";
   }
 
   async function loadThumbNc(img, ncPath) {
-    const res = await fetch(
-      "/api/browse/thumb?nc_path=" + encodeURIComponent(ncPath),
-      { credentials: "same-origin" }
-    );
-    if (res.status === 401) {
-      window.location.href = "/login";
-      return;
-    }
-    if (!res.ok) return;
-    const blob = await res.blob();
-    img.src = URL.createObjectURL(blob);
+    img.src = "/api/browse/thumb?nc_path=" + encodeURIComponent(ncPath);
+    img.loading = "lazy";
   }
 
   function renderTagEditor(container, initialTags, allowed, readOnly) {
@@ -91,6 +107,7 @@
         s.type = "button";
         s.className = "tag removable";
         s.textContent = t + " ×";
+        s.title = "Tag entfernen";
         s.onclick = () => {
           state.delete(t);
           redraw();
@@ -104,32 +121,93 @@
     addRow.className = "add-tag";
     const inp = document.createElement("input");
     inp.type = "text";
-    inp.placeholder = "Tag hinzufügen …";
+    inp.placeholder = "Tag(s): tippen, Komma oder + …";
     inp.setAttribute("list", "tagCatalog");
     const addBtn = document.createElement("button");
     addBtn.type = "button";
     addBtn.textContent = "+";
-    addBtn.onclick = () => {
-      const v = inp.value.trim().toLowerCase().replace(/\s+/g, "_");
-      if (!v) return;
+    addBtn.title = "Tag(s) aus dem Feld übernehmen";
+
+    const pickList = document.createElement("div");
+    pickList.className = "tag-pick-list hidden";
+
+    function addTagValue(v) {
+      v = v.trim().toLowerCase().replace(/\s+/g, "_");
+      if (!v) return false;
       if (allowed.length && !allowed.includes(v)) {
-        setStatus("Unbekannter Tag: " + v, true);
-        return;
+        setStatus("Unbekannter Tag (nicht in categories.txt): " + v, true);
+        return false;
       }
       state.add(v);
-      inp.value = "";
-      redraw();
-    };
+      return true;
+    }
+
+    function commitInput() {
+      const raw = inp.value.trim();
+      if (!raw) return;
+      const parts = raw.split(/[,;]+/).flatMap((chunk) => chunk.split(/\s+/));
+      let added = 0;
+      parts.forEach((p) => {
+        if (addTagValue(p)) added += 1;
+      });
+      if (added) {
+        inp.value = "";
+        redraw();
+        pickList.classList.add("hidden");
+      }
+    }
+
+    function refreshPickList() {
+      const q = inp.value.trim().toLowerCase().replace(/\s+/g, "_");
+      pickList.innerHTML = "";
+      if (q.length < 1) {
+        pickList.classList.add("hidden");
+        return;
+      }
+      const matches = allowed.filter((t) => t.includes(q) && !state.has(t)).slice(0, 18);
+      if (!matches.length) {
+        pickList.classList.add("hidden");
+        return;
+      }
+      pickList.classList.remove("hidden");
+      matches.forEach((t) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "tag-pick";
+        b.textContent = t;
+        b.onclick = () => {
+          addTagValue(t);
+          redraw();
+          inp.value = "";
+          pickList.classList.add("hidden");
+        };
+        pickList.appendChild(b);
+      });
+    }
+
+    addBtn.onclick = () => commitInput();
     inp.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        addBtn.click();
+        commitInput();
       }
     });
+    inp.addEventListener("input", refreshPickList);
+    inp.addEventListener("focus", refreshPickList);
+
+    const hint = document.createElement("div");
+    hint.className = "tag-hint";
+    hint.textContent = "Mehrere Tags: kommagetrennt oder Vorschläge anklicken.";
+
     addRow.append(inp, addBtn);
-    wrap.append(chips, addRow);
+    wrap.append(chips, addRow, pickList, hint);
     container.appendChild(wrap);
-    return () => [...state];
+
+    function getTags() {
+      commitInput();
+      return [...state].sort();
+    }
+    return getTags;
   }
 
   function updateStatusBadge(badge, status) {
@@ -140,28 +218,50 @@
       (st === "review" ? " review" : st === "tagged" ? " tagged" : "");
   }
 
-  function resetKiTagButton(ctx) {
-    if (!ctx || !ctx.tagBtn) return;
-    ctx.tagBtn.disabled = false;
-    ctx.tagBtn.classList.remove("ki-queued", "ki-busy");
-    ctx.tagBtn.textContent = "KI taggen";
-    if (ctx.card) ctx.card.classList.remove("ki-busy", "ki-queued");
+  function setKiOverlay(ctx, text) {
+    if (!ctx || !ctx.card) return;
+    let el = ctx.card.querySelector(".ki-state");
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "ki-state hidden";
+      ctx.card.appendChild(el);
+    }
+    if (!text) {
+      el.classList.add("hidden");
+      el.textContent = "";
+      return;
+    }
+    el.textContent = text;
+    el.classList.remove("hidden");
   }
 
-  function markCardKiState(ctx, state) {
+  function markCardKiState(ctx, state, pos, total) {
     if (!ctx || !ctx.tagBtn) return;
+    const posLabel = pos && total ? " " + pos + "/" + total : "";
+    ctx.card.classList.remove("ki-busy", "ki-queued");
+    ctx.tagBtn.classList.remove("ki-busy", "ki-queued");
     if (state === "queued") {
       ctx.tagBtn.disabled = true;
       ctx.tagBtn.classList.add("ki-queued");
-      ctx.tagBtn.textContent = "In Warteschlange …";
       ctx.card.classList.add("ki-queued");
+      ctx.tagBtn.textContent = "Warteschlange" + posLabel;
+      setKiOverlay(ctx, "Warteschlange" + posLabel);
     } else if (state === "running") {
-      ctx.tagBtn.classList.remove("ki-queued");
+      ctx.tagBtn.disabled = true;
       ctx.tagBtn.classList.add("ki-busy");
-      ctx.card.classList.remove("ki-queued");
       ctx.card.classList.add("ki-busy");
-      ctx.tagBtn.textContent = "KI läuft …";
+      ctx.tagBtn.textContent = "KI läuft" + posLabel + " …";
+      setKiOverlay(ctx, "KI aktiv" + posLabel);
+    } else {
+      ctx.tagBtn.disabled = false;
+      ctx.tagBtn.textContent = "KI taggen";
+      setKiOverlay(ctx, "");
     }
+  }
+
+  function resetKiTagButton(ctx) {
+    if (!ctx || !ctx.tagBtn) return;
+    markCardKiState(ctx, "idle");
   }
 
   function appendReviewActions(actions, ctx, opts) {
@@ -178,22 +278,24 @@
     approveBtn.className = "ok";
     approveBtn.textContent = "Freigeben";
     approveBtn.onclick = async () => {
-      try {
-        const tags = getTags();
-        if (!tags.length) {
-          setStatus("Mindestens ein Tag nötig", true);
-          return;
+      await withBusyButton(approveBtn, "Freigabe …", async () => {
+        try {
+          const tags = getTags();
+          if (!tags.length) {
+            setStatus("Mindestens ein Tag nötig — Feld ausfüllen und + oder Vorschlag klicken", true);
+            return;
+          }
+          const push = document.getElementById("pushAfter").checked;
+          if (push) {
+            setStatus("Freigabe inkl. push-nc … (kann bei vielen Tags dauern)");
+          }
+          await persistImageTags(item, tags, capArea.value.trim(), push);
+          card.remove();
+          setStatus("Freigegeben: " + item.nc_path);
+        } catch (e) {
+          setStatus(String(e.message || e), true);
         }
-        const push = document.getElementById("pushAfter").checked;
-        await api("/api/review/" + item.id + "/approve?push=" + (push ? "1" : "0"), {
-          method: "POST",
-          body: JSON.stringify({ tags, caption: capArea.value.trim() }),
-        });
-        card.remove();
-        setStatus("Freigegeben: " + item.nc_path);
-      } catch (e) {
-        setStatus(String(e.message || e), true);
-      }
+      });
     };
 
     const skipBtn = document.createElement("button");
@@ -239,7 +341,11 @@
     const entries = [...kiPendingNc.entries()];
     kiPendingNc.clear();
     const nc_paths = entries.map(([p]) => p);
-    entries.forEach(([p, ctx]) => kiJobCards.set(p, ctx));
+    kiJobOrder = nc_paths;
+    entries.forEach(([p, ctx], idx) => {
+      kiJobCards.set(p, ctx);
+      markCardKiState(ctx, "queued", idx + 1, nc_paths.length);
+    });
     const retag = document.getElementById("tagRetag")?.checked;
     try {
       const data = await api("/api/tag/jobs", {
@@ -265,6 +371,7 @@
 
   function onKiJobFinished(job) {
     kiJobRunning = false;
+    kiJobOrder = [];
     kiJobCards.forEach((ctx) => resetKiTagButton(ctx));
     kiJobCards.clear();
     if (kiPendingNc.size) {
@@ -325,6 +432,7 @@
     const tagBlock = document.createElement("div");
     const tagList = item.tags || item.proposed_tags || [];
     const getTags = renderTagEditor(tagBlock, tagList, tagCatalog, false);
+    const getTagsRef = { current: getTags };
 
     const actions = document.createElement("div");
     actions.className = "actions";
@@ -333,40 +441,43 @@
     saveBtn.className = "ok";
     saveBtn.textContent = "Speichern";
     saveBtn.onclick = async () => {
-      try {
-        const tags = getTags();
-        if (!tags.length) {
-          setStatus("Mindestens ein Tag nötig", true);
-          return;
+      await withBusyButton(saveBtn, "Speichere …", async () => {
+        try {
+          const tags = getTagsRef.current();
+          if (!tags.length) {
+            setStatus(
+              "Mindestens ein gültiger Tag — aus categories.txt, dann + oder Vorschlag",
+              true
+            );
+            return;
+          }
+          const push = document.getElementById("pushAfter").checked;
+          const inRev = item.in_review || item.status === "review";
+          if (push && inRev) {
+            setStatus("Speichern/Freigabe inkl. push-nc …");
+          }
+          const res = await persistImageTags(item, tags, capArea.value.trim(), push);
+          updateStatusBadge(badge, "tagged");
+          item.status = "tagged";
+          item.in_review = false;
+          if (res.id) {
+            card.dataset.id = res.id;
+            item.id = res.id;
+          }
+          setStatus(
+            (inRev ? "Freigegeben: " : push ? "DB + NC: " : "DB: ") +
+              item.nc_path +
+              (res.pushed_tags ? " (" + res.pushed_tags + " Tags NC)" : "")
+          );
+        } catch (e) {
+          setStatus(String(e.message || e), true);
         }
-        const push = document.getElementById("pushAfter").checked;
-        const res = await api("/api/browse/save?push=" + (push ? "1" : "0"), {
-          method: "POST",
-          body: JSON.stringify({
-            nc_path: item.nc_path,
-            tags,
-            caption: capArea.value.trim(),
-          }),
-        });
-        badge.textContent = "tagged";
-        if (res.id) {
-          card.dataset.id = res.id;
-          item.id = res.id;
-        }
-        setStatus(
-          (push ? "DB + NC: " : "DB: ") +
-            item.nc_path +
-            (res.pushed_tags ? " (" + res.pushed_tags + " Tags NC)" : "")
-        );
-      } catch (e) {
-        setStatus(String(e.message || e), true);
-      }
+      });
     };
     actions.append(saveBtn);
 
     const tagBtn = document.createElement("button");
     tagBtn.textContent = "KI taggen";
-    const getTagsRef = { current: getTags };
     const kiCtx = {
       card,
       tagBtn,
@@ -566,14 +677,17 @@
       job.done +
       "/" +
       job.total +
-      (job.current_nc_path ? " · " + job.current_nc_path : "");
-    if (fromKiCards && job.current_nc_path) {
-      kiJobCards.forEach((ctx, nc) => {
-        if (nc === job.current_nc_path) {
-          markCardKiState(ctx, "running");
-        } else if (ctx.tagBtn.classList.contains("ki-busy")) {
-          resetKiTagButton(ctx);
-          markCardKiState(ctx, "queued");
+      (job.current_nc_path ? " · <strong>aktiv:</strong> " + job.current_nc_path : "");
+    if (fromKiCards) {
+      const order = kiJobOrder.length ? kiJobOrder : [...kiJobCards.keys()];
+      const cur = job.current_nc_path || "";
+      order.forEach((nc, idx) => {
+        const ctx = kiJobCards.get(nc);
+        if (!ctx) return;
+        if (nc === cur) {
+          markCardKiState(ctx, "running", idx + 1, order.length);
+        } else if (job.done < job.total) {
+          markCardKiState(ctx, "queued", idx + 1, order.length);
         }
       });
     }
