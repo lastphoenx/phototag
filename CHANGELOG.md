@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.3.31
+
+- **Admin-Browse:** Ordnernavigation aus **NC-Anzeigepfad** (`nc_dav_relative_path`), nicht nur DB-`folder` — funktioniert auch bei Scan nur eines Unterordners (z. B. `…/Test`).
+
 ## 0.3.30
 
 - **Admin-UI:** grösseres Caption-Feld; **Ordner durchsuchen** (OF-Breadcrumb, Unterordner, Filter: alle / Review / mit Tags / ohne Tags). API: `/api/browse`, `/api/browse/folders`.

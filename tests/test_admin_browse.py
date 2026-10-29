@@ -3,7 +3,13 @@ from __future__ import annotations
 
 import pytest
 
-from phototag.admin_browse import list_browse_rows, list_child_folders, normalize_folder
+from phototag.admin_browse import (
+    is_direct_child_of_folder,
+    list_browse_rows,
+    list_child_folders,
+    normalize_folder,
+    nc_parent_dir,
+)
 from phototag.cli import connect
 
 
@@ -47,3 +53,30 @@ def test_list_browse_filter_review(env_db):
     rows2, total2 = list_browse_rows(con, "/mnt/of", "Zum Löschen", "untagged")
     assert total2 == 1
     assert rows2[0]["path"] == "Zum Löschen/x.jpg"
+    root_only, n = list_browse_rows(con, "/mnt/of", "", "all")
+    assert n == 1
+    assert root_only[0]["path"] == "a.jpg"
+
+
+def test_subfolder_scan_root(env_db, monkeypatch):
+    """Scan only .../Zum Löschen/Test: DB folder empty, browse via NC path."""
+    monkeypatch.setenv("PHOTOTAG_SCAN_ROOT", "/mnt/of")
+    con = connect()
+    scan_root = "/mnt/of/Zum Löschen/Test"
+    con.execute(
+        "INSERT INTO images(root,path,folder,kind,status) VALUES(?,?,?,?,?)",
+        (scan_root, "a.mov", "", "video", "tagged"),
+    )
+    con.execute(
+        "INSERT INTO images(root,path,folder,kind,status) VALUES(?,?,?,?,?)",
+        (scan_root, "b.jpg", "", "image", "review"),
+    )
+    con.commit()
+    assert nc_parent_dir(scan_root, "a.mov") == "Zum Löschen/Test"
+    assert list_child_folders(con, scan_root, "") == ["Zum Löschen"]
+    assert list_child_folders(con, scan_root, "Zum Löschen") == ["Zum Löschen/Test"]
+    rows, total = list_browse_rows(con, scan_root, "", "all")
+    assert total == 0
+    rows2, total2 = list_browse_rows(con, scan_root, "Zum Löschen/Test", "all")
+    assert total2 == 2
+    assert is_direct_child_of_folder(scan_root, "a.mov", "Zum Löschen/Test")

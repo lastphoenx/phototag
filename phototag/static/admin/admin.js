@@ -259,6 +259,10 @@
       return;
     }
     box.classList.remove("hidden");
+    const hint = document.createElement("span");
+    hint.className = "muted-hint";
+    hint.textContent = "Unterordner: ";
+    box.appendChild(hint);
     data.folders.forEach((f) => {
       const b = document.createElement("button");
       b.type = "button";
@@ -303,7 +307,13 @@
     q.innerHTML = "";
     const where = browseFolder ? browseFolder + "/" : "OF/";
     if (!data.items.length) {
-      setStatus("Keine Treffer in " + where + " (Filter: " + filter + ").");
+      setStatus(
+        "Keine Dateien in " +
+          where +
+          " (Filter: " +
+          filter +
+          "). Unterordner-Buttons oben nutzen."
+      );
       return;
     }
     data.items.forEach((item) => q.appendChild(renderItem(item)));

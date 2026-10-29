@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from phototag.config import scan_root
-from phototag.review_queue import nc_display_path, proposed_tags_from_row
+from phototag.nextcloud_sync import nc_dav_relative_path
+from phototag.review_queue import proposed_tags_from_row
 
 BROWSE_FILTERS = frozenset({"all", "review", "tagged", "untagged"})
 
@@ -26,37 +27,40 @@ def resolve_images_root(con: sqlite3.Connection) -> str:
     return want
 
 
+def nc_parent_dir(images_root: str, rel_path: str) -> str:
+    """Parent directory of file in NC/OF tree (posix, empty = library root)."""
+    nc = nc_dav_relative_path(images_root, rel_path)
+    parent = Path(nc).parent.as_posix()
+    return "" if parent == "." else parent
+
+
+def is_direct_child_of_folder(images_root: str, rel_path: str, browse_folder: str) -> bool:
+    return nc_parent_dir(images_root, rel_path) == normalize_folder(browse_folder)
+
+
 def list_child_folders(con: sqlite3.Connection, root: str, parent: str) -> list[str]:
+    """Immediate subfolders under browse path (from NC paths, not DB folder column)."""
     parent = normalize_folder(parent)
-    if parent:
-        like = parent + "/%"
-        rows = con.execute(
-            "SELECT DISTINCT folder FROM images WHERE root=? AND (folder=? OR folder LIKE ?)",
-            (root, parent, like),
-        ).fetchall()
-    else:
-        rows = con.execute(
-            "SELECT DISTINCT folder FROM images WHERE root=? AND folder != ''",
-            (root,),
-        ).fetchall()
+    rows = con.execute("SELECT path FROM images WHERE root=?", (root,)).fetchall()
     children: set[str] = set()
     for r in rows:
-        f = normalize_folder(r["folder"] or "")
-        if not f:
+        pdir = nc_parent_dir(root, r["path"])
+        if not pdir:
             continue
         if parent:
-            if f == parent:
+            if pdir == parent:
                 continue
             prefix = parent + "/"
-            if not f.startswith(prefix):
+            if not pdir.startswith(prefix):
                 continue
-            rest = f[len(prefix) :]
+            rest = pdir[len(prefix) :]
+            seg = rest.split("/")[0]
+            if seg:
+                children.add(f"{parent}/{seg}")
         else:
-            rest = f
-        seg = rest.split("/")[0]
-        if not seg:
-            continue
-        children.add(f"{parent}/{seg}" if parent else seg)
+            seg = pdir.split("/")[0]
+            if seg:
+                children.add(seg)
     return sorted(children)
 
 
@@ -82,20 +86,16 @@ def list_browse_rows(
     folder = normalize_folder(folder)
     filter_key = filter_key if filter_key in BROWSE_FILTERS else "all"
     extra, extra_params = _filter_clause(filter_key)
-    where = f"root=? AND folder=? AND ({extra})"
-    params: list[Any] = [root, folder, *extra_params]
-    total = con.execute(
-        f"SELECT COUNT(*) FROM images WHERE {where}",
-        params,
-    ).fetchone()[0]
-    lim = max(1, min(200, int(limit)))
-    off = max(0, int(offset))
     rows = con.execute(
         "SELECT id, root, path, folder, kind, status, age_status, caption, error, model_raw "
-        f"FROM images WHERE {where} ORDER BY path LIMIT ? OFFSET ?",
-        [*params, lim, off],
+        f"FROM images WHERE root=? AND ({extra}) ORDER BY path",
+        [root, *extra_params],
     ).fetchall()
-    return rows, total
+    matched = [r for r in rows if is_direct_child_of_folder(root, r["path"], folder)]
+    total = len(matched)
+    lim = max(1, min(200, int(limit)))
+    off = max(0, int(offset))
+    return matched[off : off + lim], total
 
 
 def tags_for_image(con: sqlite3.Connection, row: sqlite3.Row, allowed: set[str]) -> list[str]:
@@ -115,6 +115,8 @@ def tags_for_image(con: sqlite3.Connection, row: sqlite3.Row, allowed: set[str])
 def browse_row_to_api_dict(
     con: sqlite3.Connection, row: sqlite3.Row, allowed: set[str]
 ) -> dict[str, Any]:
+    from phototag.review_queue import nc_display_path
+
     tags = tags_for_image(con, row, allowed)
     cap = row["caption"] or ""
     if row["status"] == "review" and not cap:
@@ -123,11 +125,12 @@ def browse_row_to_api_dict(
     flags: list[str] = []
     if row["status"] == "review":
         _, _, flags = proposed_tags_from_row(row, allowed)
+    nc_dir = nc_parent_dir(row["root"], row["path"])
     return {
         "id": row["id"],
         "path": row["path"],
         "nc_path": nc_display_path(row),
-        "folder": row["folder"] or "",
+        "folder": nc_dir,
         "kind": row["kind"],
         "status": row["status"],
         "age_status": row["age_status"],
