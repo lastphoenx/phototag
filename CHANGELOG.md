@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.3.29
+
+- **Admin-Dienst:** gunicorn ohne `--factory` (`phototag.admin_app:application`); **`run-admin-wsgi.sh`** bindet LAN (`PHOTOTAG_ADMIN_SERVICE_BIND`), sicheres **`source phototag.env`**; Preflight vor Start. **`install-admin-service.sh`** zeigt journal bei Fehler. **`update-from-github.sh`:** `chmod +x` auf Skripte.
+
 ## 0.3.28
 
 - **Review-Admin Dauerbetrieb:** `scripts/systemd/phototag-admin.service`, `run-admin-wsgi.sh` (gunicorn), **`install-admin-service.sh`**. LAN ohne SSH (`BIND=0.0.0.0` in der Unit). Updates: `pip install -e ".[admin]"`. 2FA weiterhin per Homelab-Reverse-Proxy (DEPLOY.md).

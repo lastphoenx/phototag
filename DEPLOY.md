@@ -76,7 +76,7 @@ systemctl status phototag-admin.service
 journalctl -u phototag-admin.service -n 30 --no-pager
 ```
 
-Die Unit **`phototag-admin.service`** setzt **`PHOTOTAG_ADMIN_BIND=0.0.0.0`** (überschreibt `127.0.0.1` in der Env **nur für diesen Dienst**). Port: **`PHOTOTAG_ADMIN_PORT`** (Default 8765).
+Die Unit **`phototag-admin.service`** bindet per **`run-admin-wsgi.sh`** auf **`0.0.0.0`** (`PHOTOTAG_ADMIN_SERVICE_BIND`) — unabhängig von `PHOTOTAG_ADMIN_BIND=127.0.0.1` in `phototag.env` (gilt nur für manuelles `phototag serve`).
 
 Nach **`update-from-github.sh`:** `systemctl restart phototag-admin.service` (wenn installiert).
 

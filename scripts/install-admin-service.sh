@@ -38,6 +38,15 @@ install -m 644 "$UNIT_SRC" "$UNIT_DST"
 systemctl daemon-reload
 systemctl enable phototag-admin.service
 systemctl restart phototag-admin.service
+sleep 2
+if ! systemctl is-active --quiet phototag-admin.service; then
+  echo "" >&2
+  echo "FEHLER: phototag-admin.service startet nicht. Letzte Logs:" >&2
+  journalctl -u phototag-admin.service -n 40 --no-pager >&2 || true
+  echo "" >&2
+  echo "Manuell testen: ${INSTALL_DIR}/scripts/run-admin-wsgi.sh" >&2
+  exit 1
+fi
 
 echo ""
 echo "OK: phototag-admin.service aktiv."

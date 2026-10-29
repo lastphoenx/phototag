@@ -115,6 +115,12 @@ if ! grep -q 'PHOTOTAG_UPDATE_REF:-main' "$INSTALL_DIR/scripts/update-from-githu
 fi
 
 cd "$INSTALL_DIR"
+shopt -s nullglob
+for s in scripts/*.sh scripts/lib/*.sh; do
+  [[ -f "$s" ]] && chmod +x "$s"
+done
+shopt -u nullglob
+
 if [[ ! -d .venv ]]; then
   python3 -m venv .venv
 fi

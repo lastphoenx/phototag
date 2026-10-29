@@ -176,8 +176,12 @@ def create_app():
     return app
 
 
+# gunicorn entry (scripts/run-admin-wsgi.sh): phototag.admin_app:application
+application = create_app()
+
+
 def run_server() -> None:
-    app = create_app()
+    app = application
     host = admin_bind()
     port = admin_port()
     print("=== phototag Review-Admin (Web-UI) ===", flush=True)
