@@ -2,8 +2,12 @@
   let tagCatalog = [];
   let browseFolder = "";
   let jobPollTimer = null;
-  /** @type {Set<string>} */
-  const kiTagActive = new Set();
+  /** @type {Map<string, object>} nc_path → card ctx while job runs */
+  let kiJobCards = new Map();
+  /** @type {Map<string, object>} waiting to flush into next job */
+  let kiPendingNc = new Map();
+  let kiFlushTimer = null;
+  let kiJobRunning = false;
 
   function setStatus(msg, isErr) {
     const el = document.getElementById("statusLine");
@@ -128,11 +132,47 @@
     return () => [...state];
   }
 
-  function appendReviewActions(actions, ctx) {
+  function updateStatusBadge(badge, status) {
+    const st = status || "unindexed";
+    badge.textContent = st;
+    badge.className =
+      "status-badge" +
+      (st === "review" ? " review" : st === "tagged" ? " tagged" : "");
+  }
+
+  function resetKiTagButton(ctx) {
+    if (!ctx || !ctx.tagBtn) return;
+    ctx.tagBtn.disabled = false;
+    ctx.tagBtn.classList.remove("ki-queued", "ki-busy");
+    ctx.tagBtn.textContent = "KI taggen";
+    if (ctx.card) ctx.card.classList.remove("ki-busy", "ki-queued");
+  }
+
+  function markCardKiState(ctx, state) {
+    if (!ctx || !ctx.tagBtn) return;
+    if (state === "queued") {
+      ctx.tagBtn.disabled = true;
+      ctx.tagBtn.classList.add("ki-queued");
+      ctx.tagBtn.textContent = "In Warteschlange …";
+      ctx.card.classList.add("ki-queued");
+    } else if (state === "running") {
+      ctx.tagBtn.classList.remove("ki-queued");
+      ctx.tagBtn.classList.add("ki-busy");
+      ctx.card.classList.remove("ki-queued");
+      ctx.card.classList.add("ki-busy");
+      ctx.tagBtn.textContent = "KI läuft …";
+    }
+  }
+
+  function appendReviewActions(actions, ctx, opts) {
     const { item, card, badge, getTags, capArea } = ctx;
     if (!item.id) return;
     const inReview = item.in_review || item.status === "review";
-    if (!inReview) return;
+    if (!opts || !opts.always) {
+      if (!inReview) return;
+    }
+
+    actions.classList.add("review-actions");
 
     const approveBtn = document.createElement("button");
     approveBtn.className = "ok";
@@ -171,65 +211,72 @@
     actions.append(approveBtn, skipBtn);
   }
 
-  function setKiTagBusy(card, tagBtn, ncPath, busy) {
-    if (busy) {
-      kiTagActive.add(ncPath);
-      card.classList.add("ki-busy");
-      tagBtn.disabled = true;
-      tagBtn.classList.add("ki-busy");
-      tagBtn.textContent = "KI läuft …";
-    } else {
-      kiTagActive.delete(ncPath);
-      card.classList.remove("ki-busy");
-      tagBtn.disabled = false;
-      tagBtn.classList.remove("ki-busy");
-      tagBtn.textContent = "KI taggen";
+  function updateKiQueueHint() {
+    const n = kiPendingNc.size + (kiJobRunning ? kiJobCards.size : 0);
+    if (n > 0 && !kiJobRunning) {
+      setStatus(n + " Datei(en) in KI-Warteschlange …");
     }
-    document.querySelectorAll(".card .actions button").forEach((btn) => {
-      if (btn.textContent === "KI taggen" || btn.classList.contains("ki-busy")) {
-        btn.disabled = kiTagActive.size > 0;
-        if (!btn.classList.contains("ki-busy") && kiTagActive.size > 0) {
-          btn.title = "Warte auf laufendes KI-Tagging …";
-        } else {
-          btn.removeAttribute("title");
-        }
-      }
-    });
   }
 
-  async function runKiTagOne(item, ctx) {
-    const { card, tagBtn, badge, capArea, tagBlock, getTagsRef } = ctx;
-    const ncPath = item.nc_path;
-    if (kiTagActive.has(ncPath)) return;
-    setKiTagBusy(card, tagBtn, ncPath, true);
-    setStatus("KI-Tagging … " + ncPath + " (kann mehrere Minuten dauern)");
+  function scheduleKiJobFlush() {
+    if (kiFlushTimer) clearTimeout(kiFlushTimer);
+    kiFlushTimer = setTimeout(flushKiPendingJob, 400);
+  }
+
+  function queueKiTag(item, ctx) {
+    const nc = item.nc_path;
+    if (kiPendingNc.has(nc) || kiJobCards.has(nc)) return;
+    markCardKiState(ctx, "queued");
+    kiPendingNc.set(nc, ctx);
+    updateKiQueueHint();
+    if (kiJobRunning) return;
+    scheduleKiJobFlush();
+  }
+
+  async function flushKiPendingJob() {
+    kiFlushTimer = null;
+    if (kiJobRunning || !kiPendingNc.size) return;
+    const entries = [...kiPendingNc.entries()];
+    kiPendingNc.clear();
+    const nc_paths = entries.map(([p]) => p);
+    entries.forEach(([p, ctx]) => kiJobCards.set(p, ctx));
+    const retag = document.getElementById("tagRetag")?.checked;
     try {
-      const retag = document.getElementById("tagRetag")?.checked;
-      const res = await api("/api/tag/one", {
+      const data = await api("/api/tag/jobs", {
         method: "POST",
-        body: JSON.stringify({ nc_path: ncPath, retag: !!retag }),
+        body: JSON.stringify({ nc_paths, retag, recursive: false }),
       });
-      if (res.skipped) {
-        setStatus(res.message || "Übersprungen");
-      } else if (res.ok) {
-        badge.textContent = res.status || "ok";
-        if (res.caption) capArea.value = res.caption;
-        item.status = res.status;
-        item.in_review = res.status === "review";
-        if (res.proposed_tags || res.tags) {
-          tagBlock.innerHTML = "";
-          const tags = res.proposed_tags || res.tags || [];
-          const getTags = renderTagEditor(tagBlock, tags, tagCatalog, false);
-          if (getTagsRef) getTagsRef.current = getTags;
-        }
-        setStatus("KI fertig: " + ncPath + " → " + (res.status || ""));
-      } else {
-        setStatus(res.error || "Fehler", true);
+      if (!data.ok || !data.job || data.job.total === 0) {
+        entries.forEach(([, ctx]) => resetKiTagButton(ctx));
+        kiJobCards.clear();
+        setStatus((data && data.error) || "Keine Dateien für KI-Job (Mount/Index?)", true);
+        return;
       }
+      kiJobRunning = true;
+      setStatus("KI-Job " + data.job.id + ": " + data.job.total + " Datei(en) in Stapel");
+      showJobPanel(data.job);
+      pollTagJob(data.job.id, true);
     } catch (e) {
+      entries.forEach(([, ctx]) => resetKiTagButton(ctx));
+      kiJobCards.clear();
       setStatus(String(e.message || e), true);
-    } finally {
-      setKiTagBusy(card, tagBtn, ncPath, false);
+    }
+  }
+
+  function onKiJobFinished(job) {
+    kiJobRunning = false;
+    kiJobCards.forEach((ctx) => resetKiTagButton(ctx));
+    kiJobCards.clear();
+    if (kiPendingNc.size) {
+      scheduleKiJobFlush();
+    }
+    if (job && job.status === "done") {
+      setStatus(
+        "KI-Job fertig: " + job.ok_count + " ok, " + job.fail_count + " fehler — Ansicht aktualisiert"
+      );
+      reload().catch(() => {});
+    } else if (job && job.status === "error") {
+      setStatus("KI-Job fehlgeschlagen: " + (job.last_error || ""), true);
     }
   }
 
@@ -320,18 +367,24 @@
     const tagBtn = document.createElement("button");
     tagBtn.textContent = "KI taggen";
     const getTagsRef = { current: getTags };
-    tagBtn.onclick = () =>
-      runKiTagOne(item, {
-        card,
-        tagBtn,
-        badge,
-        capArea,
-        tagBlock,
-        getTagsRef,
-      });
+    const kiCtx = {
+      card,
+      tagBtn,
+      badge,
+      capArea,
+      tagBlock,
+      getTagsRef,
+    };
+    tagBtn.onclick = () => queueKiTag(item, kiCtx);
     actions.append(tagBtn);
 
-    appendReviewActions(actions, { item, card, badge, getTags: () => getTagsRef.current(), capArea });
+    appendReviewActions(actions, {
+      item,
+      card,
+      badge,
+      getTags: () => getTagsRef.current(),
+      capArea,
+    });
 
     body.append(path, meta, capLabel, capArea, tagBlock, actions);
     card.append(img, body);
@@ -339,7 +392,9 @@
   }
 
   function renderItem(item) {
-    const inReview = item.in_review || item.status === "review";
+    item.status = item.status || "review";
+    item.in_review = true;
+    const inReview = true;
     const card = document.createElement("article");
     card.className = "card";
     card.dataset.id = item.id;
@@ -371,18 +426,15 @@
     capArea.className = "caption-edit";
     capArea.rows = 5;
     capArea.value = item.caption || "";
-    if (!inReview) {
-      capArea.readOnly = true;
-    }
 
     const tagBlock = document.createElement("div");
     const tagList = item.proposed_tags || item.tags || [];
-    const getTags = renderTagEditor(tagBlock, tagList, tagCatalog, !inReview);
+    const getTags = renderTagEditor(tagBlock, tagList, tagCatalog, false);
 
     const actions = document.createElement("div");
     actions.className = "actions";
 
-    appendReviewActions(actions, { item, card, badge, getTags, capArea });
+    appendReviewActions(actions, { item, card, badge, getTags, capArea }, { always: true });
 
     body.append(path, meta, capLabel, capArea, tagBlock, actions);
     card.append(img, body);
@@ -468,7 +520,7 @@
     });
   }
 
-  function showJobPanel(job) {
+  function showJobPanel(job, fromKiCards) {
     const el = document.getElementById("jobPanel");
     if (!job || job.status === "done" || job.status === "error") {
       if (job && (job.status === "done" || job.status === "error")) {
@@ -487,10 +539,12 @@
           "/" +
           job.total +
           ")";
-        if (job.status === "done") {
+        if (fromKiCards) {
+          onKiJobFinished(job);
+        } else if (job.status === "done") {
           setTimeout(() => {
             el.classList.add("hidden");
-            loadBrowse().catch(() => {});
+            reload().catch(() => {});
           }, 4000);
         }
       } else {
@@ -513,18 +567,29 @@
       "/" +
       job.total +
       (job.current_nc_path ? " · " + job.current_nc_path : "");
+    if (fromKiCards && job.current_nc_path) {
+      kiJobCards.forEach((ctx, nc) => {
+        if (nc === job.current_nc_path) {
+          markCardKiState(ctx, "running");
+        } else if (ctx.tagBtn.classList.contains("ki-busy")) {
+          resetKiTagButton(ctx);
+          markCardKiState(ctx, "queued");
+        }
+      });
+    }
   }
 
-  function pollTagJob(jobId) {
+  function pollTagJob(jobId, trackCards) {
     if (jobPollTimer) clearInterval(jobPollTimer);
     const tick = async () => {
       try {
         const data = await api("/api/tag/jobs/" + jobId);
-        showJobPanel(data.job);
+        showJobPanel(data.job, trackCards);
       } catch (e) {
         setStatus(String(e.message || e), true);
         clearInterval(jobPollTimer);
         jobPollTimer = null;
+        if (trackCards) onKiJobFinished(null);
       }
     };
     tick();
@@ -551,7 +616,7 @@
       });
       setStatus("Tag-Job gestartet: " + data.job.id + " (" + data.job.total + " Dateien)");
       showJobPanel(data.job);
-      pollTagJob(data.job.id);
+      pollTagJob(data.job.id, false);
     } catch (e) {
       setStatus(String(e.message || e), true);
     } finally {

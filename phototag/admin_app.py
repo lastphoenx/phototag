@@ -119,7 +119,9 @@ def create_app():
 
     @app.get("/")
     def index():
-        return render_template("index.html")
+        from phototag import __version__
+
+        return render_template("index.html", app_version=__version__)
 
     @app.get("/api/tags")
     def api_tags():
@@ -238,6 +240,10 @@ def create_app():
         retag = body.get("retag") in (True, 1, "1", "true")
         if not nc_path:
             return jsonify({"ok": False, "error": "nc_path fehlt"}), 400
+        if not mount_accessible():
+            return jsonify(
+                {"ok": False, "error": "PHOTOTAG_SCAN_ROOT nicht lesbar — phototag-rclone-mount.service starten"},
+            ), 503
         con = connect()
         try:
             result = tag_nc_path_sync(con, nc_path, retag=retag)
@@ -264,6 +270,10 @@ def create_app():
         limit = int(body.get("limit") or 0)
         if not folders and not nc_paths:
             return jsonify({"ok": False, "error": "folders oder nc_paths nötig"}), 400
+        if not mount_accessible():
+            return jsonify(
+                {"ok": False, "error": "PHOTOTAG_SCAN_ROOT nicht lesbar — phototag-rclone-mount.service starten"},
+            ), 503
         con = connect()
         job_id = create_tag_job(
             con,

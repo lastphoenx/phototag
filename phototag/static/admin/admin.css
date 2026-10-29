@@ -115,8 +115,15 @@ button.warn { background: #4a3a18; border-color: #6b5420; color: var(--warn); }
   background: #243044;
   border: 1px solid var(--border);
 }
+button.tag.removable {
+  font: inherit;
+  color: inherit;
+  line-height: 1.2;
+}
+button.tag.removable:hover { border-color: var(--warn); }
 .tag.blocked { opacity: 0.5; text-decoration: line-through; }
-.actions { display: flex; gap: 0.5rem; margin-top: auto; padding-top: 0.5rem; }
+.actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: auto; padding-top: 0.5rem; }
+.actions.review-actions { border-top: 1px solid var(--border); margin-top: 0.35rem; }
 .caption-edit {
   width: 100%;
   min-height: 7.5rem;
@@ -194,7 +201,9 @@ button.warn { background: #4a3a18; border-color: #6b5420; color: var(--warn); }
 .job-panel.hidden { display: none; }
 .job-panel strong { color: var(--text); }
 #tagFolderBtn { font-size: 0.85rem; margin-left: 0.5rem; }
+.card.ki-queued { outline: 1px dashed var(--muted); }
 .card.ki-busy { outline: 2px solid var(--warn); outline-offset: 2px; }
+button.ki-queued { opacity: 0.75; font-size: 0.8rem; }
 button.ki-busy, button:disabled.ki-busy {
   opacity: 0.85;
   cursor: wait;

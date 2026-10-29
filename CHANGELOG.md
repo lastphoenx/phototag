@@ -2,6 +2,12 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.2
+
+- **Review-UI:** Queue-Ansicht erzwingt editierbare Tags + Freigeben/Überspringen (unabhängig von API-Feldern); Cache-Bust auf `admin.js`/`admin.css` via Versions-Query.
+- **KI-Stapel:** Mehrere «KI taggen»-Klicks → ein Hintergrund-Job (wie Ordner-Job); Fortschritt im Job-Panel; nach Ende Reload mit Status aus DB.
+- **Mount:** KI-Jobs/`tag/one` liefern 503, wenn `PHOTOTAG_SCAN_ROOT` nicht lesbar ist (`phototag-rclone-mount.service`).
+
 ## 0.5.1
 
 - **Review-UI:** API liefert wieder `status`/`in_review` — Freigeben, Überspringen, Tag-Editor in der Review-Queue. Browse: gleiche Buttons bei `status=review`.
