@@ -61,26 +61,64 @@ Erster Tag-Test: kleines Limit, `-v` optional.
 - **`phototag approve --id N --push`** — manuell freigeben + optional NC.
 - **`phototag thumb --id N /tmp/x.jpg`** — Vorschau (id aus `review`).
 
-### Admin-UI (`phototag serve`)
+### Admin-UI (Review per Browser)
 
-CSS/JS im Python-Paket (kein CDN). **Kein SSH nötig** — CT per `pct enter`, im LAN per Browser.
+CSS/JS im Python-Paket (kein CDN). **Kein SSH-Tunnel:** CT im LAN, Browser auf **`http://<CT-IP>:8765/`**, Login mit **`PHOTOTAG_ADMIN_USER`** / Passwort (oder Hash) aus **`phototag.env`**.
+
+**Dauerbetrieb (empfohlen):** systemd + gunicorn — startet nach Reboot, kein Flask-Dev-Warnung.
+
+```bash
+cd /opt/phototag
+# phototag.env: PHOTOTAG_ADMIN_USER=..., PHOTOTAG_ADMIN_PASSWORD=... (chmod 600)
+# Optional: PHOTOTAG_ADMIN_SESSION_SECRET=langer-zufall
+./scripts/install-admin-service.sh
+systemctl status phototag-admin.service
+journalctl -u phototag-admin.service -n 30 --no-pager
+```
+
+Die Unit **`phototag-admin.service`** setzt **`PHOTOTAG_ADMIN_BIND=0.0.0.0`** (überschreibt `127.0.0.1` in der Env **nur für diesen Dienst**). Port: **`PHOTOTAG_ADMIN_PORT`** (Default 8765).
+
+Nach **`update-from-github.sh`:** `systemctl restart phototag-admin.service` (wenn installiert).
+
+**Manuell / Debug** (foreground, Flask dev server):
 
 ```bash
 pip install -e ".[admin]"
-# phototag.env (Server):
-#   PHOTOTAG_ADMIN_USER=...
-#   PHOTOTAG_ADMIN_PASSWORD=...
-#   PHOTOTAG_ADMIN_BIND=0.0.0.0
-#   PHOTOTAG_ADMIN_PORT=8765
 set -a && source phototag.env && set +a
-phototag serve
+phototag serve   # respektiert PHOTOTAG_ADMIN_BIND in phototag.env
 ```
 
-Im Browser: `http://<CT-LAN-IP>:8765` → Login → Review freigeben (optional push-nc).
+**Admin-Env (eine Zeile Wahrheit):**
 
-**2FA:** phototag liefert nur User/Passwort-Session. Zusätzliche 2FA wie bei anderen Homelab-Apps über **Reverse-Proxy** (nginx + SSO/TOTP) davor — Konfiguration nur in privatem `doku/`, nicht im GitHub-Repo.
+| Variable | Pflicht für `serve`? | Bedeutung |
+|----------|----------------------|-----------|
+| `PHOTOTAG_ADMIN_USER` | ja | Benutzername im Login-Formular |
+| `PHOTOTAG_ADMIN_PASSWORD` | ja* | Passwort im Klartext in `phototag.env` (Datei nur auf CT, `chmod 600`) |
+| `PHOTOTAG_ADMIN_PASSWORD_HASH` | ja* | Alternative zu Klartext: `werkzeug`-Hash — im Browser trotzdem Klartext eingeben |
+| `PHOTOTAG_ADMIN_BIND` | nein (Default `0.0.0.0`) | **`127.0.0.1`** = nur localhost auf dem CT; **`0.0.0.0`** = vom PC im LAN |
+| `PHOTOTAG_ADMIN_PORT` | nein (8765) | TCP-Port |
+| `PHOTOTAG_ADMIN_SESSION_SECRET` | nein | Signiert Session-Cookies (Zufallsstring empfohlen) |
+| `PHOTOTAG_ADMIN_TOKEN` | nein | **Nicht** für Browser — nur API mit Header `X-Phototag-Token` |
 
-**Hintergrund:** `nohup phototag serve >>/var/log/phototag-admin.log 2>&1 &` oder systemd-Vorlage lokal auf dem CT.
+\* Entweder `PASSWORD` oder `PASSWORD_HASH`, nicht beides nötig.
+
+Hash erzeugen (einmal auf dem CT):
+
+```bash
+.venv/bin/python -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('DEIN_PASSWORT'))"
+# Zeile in phototag.env: PHOTOTAG_ADMIN_PASSWORD_HASH=scrypt:...
+# PHOTOTAG_ADMIN_PASSWORD= dann weglassen oder auskommentieren
+```
+
+**Warum Klartext in `.env`?** Gleiches Muster wie Nextcloud-App-Passwort: die Datei ist das Geheimnis auf dem Server, nicht Git. Hash in der Env verhindert Leser mit Dateizugriff das Passwort zu sehen; wer die Env-Datei ändern kann, kann ohnehin alles. Hash ist optional ab 0.3.27.
+
+**Flask-Warnung «development server»:** nur bei **`phototag serve`**. Mit **`phototag-admin.service`** läuft **gunicorn** (Production-WSGI).
+
+**Sync-Meldung «Keys vorhanden»:** heißt nur, dass Key-Namen (auch als `#`-Kommentar) in `phototag.env` vorkommen — **nicht**, dass Admin-Login gesetzt ist. `./scripts/post-update.sh` prüft User/Passwort/BIND separat.
+
+**2FA (optional, später):** phototag selbst = **User + Passwort + Session-Cookie** (kein TOTP im Repo). Wie andere Homelab-Apps: **Reverse-Proxy** davor (nginx auf zentralem CT, Authelia/SSO/TOTP) → HTTPS + 2FA; phototag bleibt dahinter auf HTTP `:8765` im internen Netz. Snippets nur in **privatem `doku/`**, nicht in GitHub.
+
+**Später HTTPS/Domain:** gleicher Proxy (TLS-Termination), Ziel upstream `http://<phototag-CT-IP>:8765` — keine Änderung am Python-Code nötig.
 
 ## 5. Nacht-Lauf (optional, noch manuell aktivieren)
 

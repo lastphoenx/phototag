@@ -128,6 +128,28 @@ def admin_password() -> str:
     return os.getenv("PHOTOTAG_ADMIN_PASSWORD", "").strip()
 
 
+def admin_password_hash() -> str:
+    """Optional statt Klartext: werkzeug hash (generate_password_hash auf dem CT)."""
+    return os.getenv("PHOTOTAG_ADMIN_PASSWORD_HASH", "").strip()
+
+
+def verify_admin_password(candidate: str) -> bool:
+    import secrets
+
+    from werkzeug.security import check_password_hash
+
+    user = admin_user()
+    if not user:
+        return False
+    h = admin_password_hash()
+    if h:
+        return check_password_hash(h, candidate)
+    plain = admin_password()
+    if not plain:
+        return False
+    return secrets.compare_digest(candidate, plain)
+
+
 def admin_session_secret() -> str:
     explicit = os.getenv("PHOTOTAG_ADMIN_SESSION_SECRET", "").strip()
     if explicit:
@@ -140,11 +162,15 @@ def admin_session_secret() -> str:
 
 def validate_admin_auth_config() -> None:
     user = admin_user()
-    pw = admin_password()
-    if not user or not pw:
+    if not user:
         raise RuntimeError(
-            "Admin-Login fehlt: PHOTOTAG_ADMIN_USER und PHOTOTAG_ADMIN_PASSWORD "
-            "in phototag.env setzen (nur auf dem Server, nicht committen)."
+            "Admin-Login fehlt: PHOTOTAG_ADMIN_USER in phototag.env setzen "
+            "(nur auf dem Server, nicht committen)."
+        )
+    if not admin_password_hash() and not admin_password():
+        raise RuntimeError(
+            "Admin-Passwort fehlt: PHOTOTAG_ADMIN_PASSWORD oder PHOTOTAG_ADMIN_PASSWORD_HASH "
+            "in phototag.env (siehe DEPLOY.md — Hash erzeugen mit werkzeug)."
         )
 
 

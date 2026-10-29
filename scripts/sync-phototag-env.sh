@@ -70,7 +70,8 @@ if printf '%s\n' "${have[@]}" | grep -qx 'PHOTOTAG_NC_APP_PASSWORD'; then
 fi
 
 if [[ ${#missing[@]} -eq 0 ]]; then
-  echo "phototag.env: alle Keys aus .env.example vorhanden ($ENV_FILE)."
+  echo "phototag.env: Key-Namen aus .env.example sind vorhanden (Kommentarzeilen zaehlen)."
+  echo "  Das heisst NICHT, dass Werte gesetzt sind — z.B. PHOTOTAG_ADMIN_USER/PASSWORD fuer phototag serve pruefen."
   exit 0
 fi
 

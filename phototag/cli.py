@@ -830,7 +830,10 @@ def main() -> None:
     ap.add_argument("--push", action="store_true", help="Nach Freigabe push-nc für diese Datei(en)")
     ap.add_argument("--tag", action="append", dest="tags", help="Tags statt Vorschlag aus model_raw")
     ap.set_defaults(fn=cmd_approve)
-    sub.add_parser("serve", help="Review-Admin-UI (Flask, nur lokal + PHOTOTAG_ADMIN_TOKEN)").set_defaults(fn=cmd_serve)
+    sub.add_parser(
+        "serve",
+        help="Review-Admin-UI (Flask): PHOTOTAG_ADMIN_USER/PASSWORD, BIND 0.0.0.0 fuer LAN",
+    ).set_defaults(fn=cmd_serve)
     sub.add_parser("reindex").set_defaults(fn=cmd_reindex)
     sub.add_parser("version", help="Installierte Paketversion (pyproject / pip -e)").set_defaults(fn=cmd_version)
     pn = sub.add_parser("push-nc", help="Tags als Nextcloud-Schlagworte (Systemtags) setzen")

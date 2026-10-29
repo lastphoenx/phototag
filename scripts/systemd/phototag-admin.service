@@ -1,0 +1,22 @@
+[Unit]
+Description=phototag Review-Admin Web UI (gunicorn)
+Documentation=file:///opt/phototag/DEPLOY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PHOTOTAG_INSTALL_DIR=/opt/phototag
+Environment=PHOTOTAG_ENV=/opt/phototag/phototag.env
+EnvironmentFile=-/opt/phototag/phototag.env
+# LAN-Zugriff ohne SSH-Tunnel (phototag.env kann ueberschreiben; fuer PC-Browser: 0.0.0.0)
+Environment=PHOTOTAG_ADMIN_BIND=0.0.0.0
+Environment=PHOTOTAG_ADMIN_PORT=8765
+WorkingDirectory=/opt/phototag
+ExecStart=/opt/phototag/scripts/run-admin-wsgi.sh
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

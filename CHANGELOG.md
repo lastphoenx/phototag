@@ -2,6 +2,14 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.3.28
+
+- **Review-Admin Dauerbetrieb:** `scripts/systemd/phototag-admin.service`, `run-admin-wsgi.sh` (gunicorn), **`install-admin-service.sh`**. LAN ohne SSH (`BIND=0.0.0.0` in der Unit). Updates: `pip install -e ".[admin]"`. 2FA weiterhin per Homelab-Reverse-Proxy (DEPLOY.md).
+
+## 0.3.27
+
+- **Admin:** Startup-Hinweise (BIND 127.0.0.1 vs LAN, TOKEN nur API, Flask-Warnung). Optional **`PHOTOTAG_ADMIN_PASSWORD_HASH`** (werkzeug). **`post-update.sh`** / **`sync-phototag-env.sh`**: klarere Meldungen zu Admin-Login. **DEPLOY.md** / **`.env.example`**: Env-Tabelle.
+
 ## 0.3.26
 
 - **Admin-UI:** Login mit **`PHOTOTAG_ADMIN_USER` / `PHOTOTAG_ADMIN_PASSWORD`** (Session-Cookie), Standard-**`BIND=0.0.0.0`** für LAN ohne SSH. Optional **`PHOTOTAG_ADMIN_TOKEN`** nur noch für API-Header. 2FA über Homelab-Reverse-Proxy (Doku privat).

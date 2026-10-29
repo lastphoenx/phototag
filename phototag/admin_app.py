@@ -6,12 +6,12 @@ from pathlib import Path
 
 from phototag.config import (
     admin_bind,
-    admin_password,
     admin_port,
     admin_session_secret,
     admin_token,
     admin_user,
     validate_admin_auth_config,
+    verify_admin_password,
 )
 from phototag.review_queue import approve_image, list_review_rows, row_to_api_dict, skip_review
 
@@ -89,12 +89,10 @@ def create_app():
         user = (request.form.get("username") or "").strip()
         pw = request.form.get("password") or ""
         expected_user = admin_user()
-        expected_pw = admin_password()
         if (
             expected_user
-            and expected_pw
             and secrets.compare_digest(user, expected_user)
-            and secrets.compare_digest(pw, expected_pw)
+            and verify_admin_password(pw)
         ):
             session.clear()
             session["admin"] = True
@@ -182,5 +180,32 @@ def run_server() -> None:
     app = create_app()
     host = admin_bind()
     port = admin_port()
-    print(f"phototag admin: http://{host}:{port}/  (Login: PHOTOTAG_ADMIN_USER)", flush=True)
+    print("=== phototag Review-Admin (Web-UI) ===", flush=True)
+    print(
+        "Login im Browser: Benutzername + Passwort aus phototag.env "
+        "(PHOTOTAG_ADMIN_USER / PHOTOTAG_ADMIN_PASSWORD oder PASSWORD_HASH).",
+        flush=True,
+    )
+    print(f"Lauscht auf http://{host}:{port}/", flush=True)
+    if host in ("127.0.0.1", "localhost", "::1"):
+        print(
+            "HINWEIS: PHOTOTAG_ADMIN_BIND=127.0.0.1 — nur auf diesem CT erreichbar. "
+            "Fuer PC im LAN: BIND=0.0.0.0 setzen, dann http://<CT-IP>:8765/",
+            flush=True,
+        )
+    else:
+        print(
+            f"Vom PC: http://<IP-dieses-CT>:{port}/  (Port {port} = PHOTOTAG_ADMIN_PORT)",
+            flush=True,
+        )
+    print(
+        "Dauerbetrieb: ./scripts/install-admin-service.sh (gunicorn + systemd).",
+        flush=True,
+    )
+    tok = admin_token()
+    if tok:
+        print(
+            "PHOTOTAG_ADMIN_TOKEN: nur fuer API (Header X-Phototag-Token), nicht fuer Browser-Login.",
+            flush=True,
+        )
     app.run(host=host, port=port, debug=False)

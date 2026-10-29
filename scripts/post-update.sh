@@ -72,4 +72,36 @@ if [[ -n "$REQ_LOCAL" && -f "$REQ_LOCAL" ]]; then
 fi
 
 echo ""
+echo "=== Review-Admin (Web-UI) ==="
+if [[ -f "$ENV_FILE" ]]; then
+  au="$(grep -E '^[[:space:]]*PHOTOTAG_ADMIN_USER=' "$ENV_FILE" | head -1 || true)"
+  ap="$(grep -E '^[[:space:]]*PHOTOTAG_ADMIN_PASSWORD=' "$ENV_FILE" | head -1 || true)"
+  ah="$(grep -E '^[[:space:]]*PHOTOTAG_ADMIN_PASSWORD_HASH=' "$ENV_FILE" | head -1 || true)"
+  ab="$(grep -E '^[[:space:]]*PHOTOTAG_ADMIN_BIND=' "$ENV_FILE" | head -1 || true)"
+  if [[ -z "$au" ]]; then
+    echo "FEHLT: PHOTOTAG_ADMIN_USER=... in phototag.env (Web-UI-Login)."
+  else
+    echo "OK: PHOTOTAG_ADMIN_USER gesetzt."
+  fi
+  if [[ -z "$ap" && -z "$ah" ]]; then
+    echo "FEHLT: PHOTOTAG_ADMIN_PASSWORD=... oder PHOTOTAG_ADMIN_PASSWORD_HASH=..."
+  else
+    echo "OK: Admin-Passwort (Klartext oder Hash) gesetzt."
+  fi
+  if [[ "$ab" == *"127.0.0.1"* ]]; then
+    echo "HINWEIS: phototag.env BIND=127.0.0.1 — manuelles serve nur lokal; Dienst: ./scripts/install-admin-service.sh (BIND 0.0.0.0)."
+  elif [[ -n "$ab" ]]; then
+    echo "BIND: $ab"
+  else
+    echo "BIND: nicht gesetzt → Code/systemd-Default 0.0.0.0 (LAN)."
+  fi
+  echo "Dauerbetrieb: ./scripts/install-admin-service.sh  |  Browser: http://<CT-IP>:8765/"
+  if systemctl is-enabled phototag-admin.service >/dev/null 2>&1; then
+    echo "phototag-admin.service: enabled — nach Code-Update: systemctl restart phototag-admin.service"
+  else
+    echo "phototag-admin.service: noch nicht installiert (install-admin-service.sh)."
+  fi
+fi
+
+echo ""
 echo "=== fertig ==="
