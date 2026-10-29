@@ -1,0 +1,18 @@
+[Unit]
+Description=phototag rclone mount (PHOTOTAG_SCAN_ROOT)
+After=network-online.target
+Wants=network-online.target
+Before=phototag-night.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=PHOTOTAG_INSTALL_DIR=/opt/phototag
+Environment=PHOTOTAG_ENV=/opt/phototag/phototag.env
+EnvironmentFile=-/opt/phototag/phototag.env
+ExecStart=/opt/phototag/scripts/ensure-rclone-mount.sh
+ExecStop=/opt/phototag/scripts/stop-rclone-mount.sh
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

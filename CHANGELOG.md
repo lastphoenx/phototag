@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.3.22
+
+- `scripts/ensure-rclone-mount.sh`, `stop-rclone-mount.sh`, systemd `phototag-rclone-mount.service`; Nacht-Lauf startet Mount wenn `PHOTOTAG_RCLONE_MOUNT` gesetzt.
+
 ## 0.3.21
 
 - `docs/sanitize-rules.example.json` entfernt — **keine** Sanitize-/Regel-JSON im GitHub-Repo (nur Server + privates `doku/`).

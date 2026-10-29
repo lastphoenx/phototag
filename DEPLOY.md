@@ -67,7 +67,49 @@ Mount- oder Cache-Pfad auf dem CT, dessen **relative Pfade** zu Nextcloud passen
 - **`PHOTOTAG_NC_DAV_PREFIX`** = Unterordner unter `…/dav/files/USER/` für WebDAV/push-nc (z. B. `Photos`).
 - **`PHOTOTAG_SCAN_ROOT`** = Wurzel für `phototag scan`; DB speichert Pfade relativ dazu (z. B. `foo.jpg` → NC `…/USER/Photos/foo.jpg` wenn Prefix `Photos` und Scan-Root den gleichen Baum zeigt).
 
-Test: kleiner lokaler Ordner mit Kopien. Produktion: dein Mount — **Pfad in `phototag.env` eintragen**.
+Test: kleiner lokaler Ordner mit Kopien. Produktion: **rclone mount** (siehe unten).
+
+### rclone-Mount (CT, Nextcloud-WebDAV)
+
+**Remote-Name ≠ Mount-Pfad.** Syntax immer mit **Doppelpunkt**: `nextcloud_OF:` — nicht `REMOTE:OF` und nicht `nextcloud_OF` ohne `:`.
+
+Remote-Pfad herausfinden:
+
+```bash
+rclone listremotes
+rclone lsd nextcloud_OF:
+rclone lsd nextcloud_OF:OF          # falls OF ein Unterordner ist
+rclone ls nextcloud_OF: | head -5   # oder nextcloud_OF:OF
+```
+
+In **`phototag.env`** (nur Server):
+
+```bash
+PHOTOTAG_SCAN_ROOT=/mnt/nextcloud-of
+PHOTOTAG_RCLONE_MOUNT=nextcloud_OF:          # Wurzel des Remotes
+# oder PHOTOTAG_RCLONE_MOUNT=nextcloud_OF:OF  # wenn OF Unterordner ist
+PHOTOTAG_NC_DAV_PREFIX=OF                     # muss zum Mount-Baum passen
+```
+
+Mount manuell testen:
+
+```bash
+mkdir -p /mnt/nextcloud-of
+./scripts/ensure-rclone-mount.sh
+mountpoint /mnt/nextcloud-of
+ls /mnt/nextcloud-of | head
+```
+
+**systemd (Dauerbetrieb, einmalig):**
+
+```bash
+cp /opt/phototag/scripts/systemd/phototag-rclone-mount.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now phototag-rclone-mount.service
+systemctl status phototag-rclone-mount.service
+```
+
+CT braucht **FUSE** (`fuse3`, ggf. `pct set 142 -features fuse=1` + Reboot). `night-tag-loop.sh` ruft **`ensure-rclone-mount.sh`** auf, wenn das Skript existiert.
 
 ### Batch + Pause (15 / 60 ist nicht Pflicht)
 
@@ -89,10 +131,12 @@ Kleiner Bestand, schnelle Nacht: z. B. `BATCH=50`, `SLEEP=10`. Volle Bibliothe
 ### systemd einrichten (einmalig, du auf dem CT)
 
 ```bash
+cp /opt/phototag/scripts/systemd/phototag-rclone-mount.service /etc/systemd/system/
 cp /opt/phototag/scripts/systemd/phototag-night.service /etc/systemd/system/
 cp /opt/phototag/scripts/systemd/phototag-night.timer /etc/systemd/system/
-# phototag.env: PHOTOTAG_SCAN_ROOT, optional NIGHT_* setzen
+# phototag.env: PHOTOTAG_SCAN_ROOT, PHOTOTAG_RCLONE_MOUNT, optional NIGHT_*
 systemctl daemon-reload
+systemctl enable --now phototag-rclone-mount.service
 systemctl enable --now phototag-night.timer
 systemctl list-timers | grep phototag
 ```

@@ -31,7 +31,18 @@ SCAN_ROOT="${PHOTOTAG_SCAN_ROOT:-}"
   echo "PHOTOTAG_SCAN_ROOT fehlt in $ENV_FILE (Mount-Pfad zum Medienbaum, nicht der Remote-Name)." >&2
   exit 1
 }
-[[ -d "$SCAN_ROOT" ]] || { echo "SCAN_ROOT nicht lesbar: $SCAN_ROOT" >&2; exit 1; }
+
+if [[ -x "${INSTALL_DIR}/scripts/ensure-rclone-mount.sh" ]]; then
+  "${INSTALL_DIR}/scripts/ensure-rclone-mount.sh" || exit 1
+fi
+
+if ! mountpoint -q "$SCAN_ROOT" 2>/dev/null; then
+  if [[ ! -d "$SCAN_ROOT" ]]; then
+    echo "SCAN_ROOT fehlt: $SCAN_ROOT (PHOTOTAG_RCLONE_MOUNT setzen oder manuell mounten)" >&2
+    exit 1
+  fi
+  echo "Warnung: $SCAN_ROOT ist kein Mountpoint — scan/tag liest evtl. leeren Ordner." >&2
+fi
 
 hour_lt_end() {
   local h

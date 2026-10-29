@@ -1,7 +1,7 @@
 [Unit]
 Description=phototag night scan+tag loop until morning
-After=network-online.target
-Wants=network-online.target
+After=network-online.target phototag-rclone-mount.service
+Wants=network-online.target phototag-rclone-mount.service
 
 [Service]
 Type=oneshot
