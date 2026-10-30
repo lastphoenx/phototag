@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.9
+
+- **night-tag-loop.sh:** Pending-Zählung über **Python/sqlite3-Modul** statt CLI `sqlite3` (fehlte auf CT → Nacht-Lauf endete um 00:00:32 sofort).
+
 ## 0.5.8
 
 - **Browse:** Filter **In Unterordnern** + **Pagination** (80 pro Seite) für alle Filter (Mit Tags / Ohne Tags / Review / Alle).

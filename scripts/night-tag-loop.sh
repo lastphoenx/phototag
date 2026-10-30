@@ -52,7 +52,8 @@ hour_lt_end() {
 
 cd "$INSTALL_DIR"
 PT="${INSTALL_DIR}/.venv/bin/phototag"
-command -v sqlite3 >/dev/null || { echo "sqlite3 fehlt" >&2; exit 1; }
+PY="${INSTALL_DIR}/.venv/bin/python"
+[[ -x "$PY" ]] || { echo "FEHLT: $PY" >&2; exit 1; }
 
 run_tag() {
   local kind_flag=()
@@ -65,14 +66,26 @@ run_tag() {
 }
 
 pending_count() {
-  local kind_sql="${1:-}"
-  if [[ -n "$kind_sql" ]]; then
-    sqlite3 "$PHOTOTAG_DB" \
-      "SELECT COUNT(*) FROM images WHERE status IN ('new','error') AND kind='$kind_sql';"
-  else
-    sqlite3 "$PHOTOTAG_DB" \
-      "SELECT COUNT(*) FROM images WHERE status IN ('new','error');"
-  fi
+  local kind="${1:-}"
+  "$PY" - "$kind" <<'PY'
+import os
+import sqlite3
+import sys
+
+db = os.environ.get("PHOTOTAG_DB") or "phototag.db"
+kind = (sys.argv[1] if len(sys.argv) > 1 else "") or None
+con = sqlite3.connect(db)
+if kind:
+    row = con.execute(
+        "SELECT COUNT(*) FROM images WHERE status IN ('new','error') AND kind=?",
+        (kind,),
+    ).fetchone()
+else:
+    row = con.execute(
+        "SELECT COUNT(*) FROM images WHERE status IN ('new','error')",
+    ).fetchone()
+print(row[0])
+PY
 }
 
 echo "phototag night: scan=$SCAN_ROOT db=${PHOTOTAG_DB:-?} batch=$BATCH sleep=${SLEEP_SEC}s bis ${END_HOUR}:00 images_first=$IMAGES_FIRST kind=${NIGHT_KIND:-all}"
