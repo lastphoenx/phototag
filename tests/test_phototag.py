@@ -405,3 +405,29 @@ def test_strip_invalid_detail_under_censor(tmp_path: Path, monkeypatch: pytest.M
     assert "anus_visible" not in t
     assert "rear_view_naked" in t
     assert "anus_detail_under_censor" in flags
+
+
+def test_strip_genitals_visible_with_breast_censor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import json
+
+    from phototag.tagging import strip_invalid_detail_under_censor
+    from phototag.tagging_custom import clear_tagging_custom_cache
+
+    rules = {
+        "strip_under_censor": [
+            {
+                "when": "genitals_visible",
+                "when_any_in": ["breasts_censored"],
+                "drop_tags": ["genitals_visible"],
+                "flag": "genitals_visible_with_censor_context",
+            }
+        ]
+    }
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps(rules), encoding="utf-8")
+    monkeypatch.setenv("PHOTOTAG_TAGGING_CUSTOM", str(p))
+    clear_tagging_custom_cache()
+    t = {"genitals_visible", "breasts_censored", "nude", "face_censored"}
+    flags = strip_invalid_detail_under_censor(t)
+    assert "genitals_visible" not in t
+    assert "genitals_visible_with_censor_context" in flags

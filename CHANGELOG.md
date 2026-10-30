@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.17
+
+- **Custom strip:** `when` + `when_any_in` / `when_all_in` — z. B. `genitals_visible` entfernen wenn `breasts_censored` oder andere Zensur-Tags; Prompt-Hinweis `vulva_censor_hint` (nur via JSON).
+
 ## 0.5.16
 
 - **KI:** Sensitive Zensur-Prompts und `strip_under_censor` aus **`PHOTOTAG_TAGGING_CUSTOM`** (JSON nur Server/tempdok); öffentlicher Code = Loader + generischer Fallback. Gesichts-Partial-Tags über categories + Custom-Prompt (`face_partial_*`, `face_visible`).

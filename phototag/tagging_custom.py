@@ -110,7 +110,7 @@ def vision_prompt_anonymization_block(lang: str, allowed: set[str]) -> str:
         intro = intro.replace("{examples}", examples)
 
         chunks = [intro]
-        for key in ("face_censor_rule", "face_visibility"):
+        for key in ("face_censor_rule", "face_visibility", "vulva_censor_hint"):
             block = _prompt_section(custom, lang_key, key)
             if block:
                 if not block.startswith("-"):
@@ -163,9 +163,18 @@ def strip_invalid_detail_under_censor(t: set[str]) -> list[str]:
         flag = str(rule.get("flag") or "under_censor").strip()
 
         fire = False
+        when_all = rule.get("when_all_in")
+        if isinstance(when_all, list):
+            all_set = {str(x).strip().lower() for x in when_all if str(x).strip()}
+            if all_set and all_set <= t:
+                fire = True
         if when_tag and when_tag in t:
-            fire = True
-        elif isinstance(when_any, list):
+            if isinstance(when_any, list):
+                any_set = {str(x).strip().lower() for x in when_any}
+                fire = bool(any_set & t)
+            elif not isinstance(when_all, list):
+                fire = True
+        elif isinstance(when_any, list) and not when_tag and not isinstance(when_all, list):
             any_set = {str(x).strip().lower() for x in when_any}
             if any_set & t:
                 fire = True
