@@ -22,9 +22,21 @@
     <label>Ansicht
       <select id="viewMode">
         <option value="browse" selected>Ordner durchsuchen (Mount)</option>
+        <option value="search">Stichworte &amp; Tags (DB)</option>
         <option value="review">Review-Queue (gesamt)</option>
       </select>
     </label>
+    <div id="searchBar" class="search-bar hidden">
+      <label>Stichworte
+        <input type="search" id="searchQuery" autocomplete="off" placeholder="Caption, Pfad, Ordner, Tags …">
+      </label>
+      <label>Tag(s)
+        <input type="text" id="searchTags" list="tagCatalog" autocomplete="off" placeholder="exakt, kommagetrennt">
+      </label>
+      <label class="chk"><input type="checkbox" id="searchAny"> OR (ein Begriff reicht)</label>
+      <label class="chk"><input type="checkbox" id="searchFuzzy"> Fuzzy</label>
+      <button type="button" id="searchBtn" class="primary">Suchen</button>
+    </div>
     <label id="filterWrap" class="hidden">Filter
       <select id="browseFilter">
         <option value="all">Alle</option>

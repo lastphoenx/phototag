@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.7.5
+
+- **Admin:** Ansicht «Stichworte & Tags (DB)» — `GET /api/search` (FTS wie CLI `phototag search`, Tag-Filter, Paginierung), Karten mit Thumb-Vorschau.
+
 ## 0.7.4
 
 - **Video/Gesenkter Kopf (Patch 23):** Kollabierte Augen-Landmarks → stabile Achse aus Erkennungs-Drehung; `despike`/`gate_unsure`/`settle_axes` glätten springende Boxen; Tracker bestraft Sprünge (`JUMP_WEIGHT`). `PHOTOTAG_FACEBLUR_UNSURE=face` optional: Eyebar wird ganze Gesichts-Box.

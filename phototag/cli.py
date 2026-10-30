@@ -690,42 +690,24 @@ def cmd_tag(args) -> None:
 
 # ---------------------------------------------------------------- Suche
 
-def _terms(query: str) -> list[str]:
-    return [t for t in re.split(r"\s+", query.strip()) if t and t.upper() not in {"OR", "AND"}]
-
 
 def cmd_search(args) -> None:
     con = connect()
-    terms = _terms(args.query)
-    where, params = ["i.status='tagged'"], []
-    if terms:
-        joiner = " OR " if args.any else " AND "
-        if args.fuzzy and has_trigram(con):
-            # Trigram braucht >= 3 Zeichen; kürzere Begriffe -> Präfix im Standardindex
-            long_t = [t for t in terms if len(t) >= 3]
-            match = joiner.join('"' + t.replace('"', '') + '"' for t in long_t) or None
-            table = "search_tri"
-        else:
-            match = joiner.join('"' + t.replace('"', '') + '"*' for t in terms)  # Präfix: "stran" findet "strand"
-            table = "search"
-        if match:
-            where.append(f"i.id IN (SELECT rowid FROM {table} WHERE {table} MATCH ?)")
-            params.append(match)
-    for tag in args.tag or []:
-        where.append("i.id IN (SELECT image_id FROM tags WHERE tag=?)")
-        params.append(tag.lower())
-    if args.folder:
-        where.append("i.folder LIKE ?")
-        params.append(f"%{args.folder}%")
-    if args.kind:
-        where.append("i.kind=?")
-        params.append(args.kind)
-    rows = con.execute(
-        "SELECT i.id,i.path,i.folder,i.kind,i.caption,i.thumb,i.duration,"
-        "(SELECT group_concat(tag,' ') FROM tags WHERE image_id=i.id) AS tags "
-        f"FROM images i WHERE {' AND '.join(where)} ORDER BY i.mtime DESC LIMIT ?",
-        (*params, args.limit),
-    ).fetchall()
+    from phototag.admin_search import search_image_rows
+
+    rows, _total = search_image_rows(
+        con,
+        query=args.query,
+        tags=args.tag,
+        any_term=args.any,
+        fuzzy=args.fuzzy,
+        folder=args.folder or "",
+        kind=args.kind,
+        limit=args.limit,
+        offset=0,
+        columns="i.id,i.path,i.folder,i.kind,i.caption,i.thumb,i.duration,"
+        "(SELECT group_concat(tag,' ') FROM tags WHERE image_id=i.id) AS tags",
+    )
     out_dir = Path(args.export_thumbs) if args.export_thumbs else None
     if out_dir:
         out_dir.mkdir(parents=True, exist_ok=True)

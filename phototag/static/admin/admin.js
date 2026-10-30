@@ -11,6 +11,7 @@
   /** @type {string[]} */
   let kiJobOrder = [];
   let browseOffset = 0;
+  let searchOffset = 0;
   const BROWSE_PAGE = 80;
   /** @type {Map<string, object>} mount cards on current browse page */
   let mountCardByNc = new Map();
@@ -264,6 +265,10 @@
 
   function isBrowseMode() {
     return document.getElementById("viewMode").value === "browse";
+  }
+
+  function isSearchMode() {
+    return document.getElementById("viewMode").value === "search";
   }
 
   async function api(path, opts) {
@@ -1458,9 +1463,9 @@
     }
   }
 
-  function renderBrowsePager(total, offset, limit) {
+  function renderBrowsePager(total, offset, limit, onPage) {
     const nav = document.getElementById("browsePager");
-    if (!isBrowseMode() || total <= limit) {
+    if ((!isBrowseMode() && !isSearchMode()) || total <= limit) {
       nav.classList.add("hidden");
       nav.innerHTML = "";
       return;
@@ -1479,8 +1484,10 @@
     prev.textContent = "← Zurück";
     prev.disabled = offset <= 0;
     prev.onclick = () => {
-      browseOffset = Math.max(0, offset - limit);
-      loadBrowse().catch((e) => setStatus(e.message, true));
+      const nextOff = Math.max(0, offset - limit);
+      if (isSearchMode()) searchOffset = nextOff;
+      else browseOffset = nextOff;
+      onPage().catch((e) => setStatus(e.message, true));
     };
     nav.appendChild(prev);
     const next = document.createElement("button");
@@ -1488,8 +1495,10 @@
     next.textContent = "Weiter →";
     next.disabled = offset + limit >= total;
     next.onclick = () => {
-      browseOffset = offset + limit;
-      loadBrowse().catch((e) => setStatus(e.message, true));
+      const nextOff = offset + limit;
+      if (isSearchMode()) searchOffset = nextOff;
+      else browseOffset = nextOff;
+      onPage().catch((e) => setStatus(e.message, true));
     };
     nav.appendChild(next);
   }
@@ -1535,7 +1544,7 @@
     const [data] = await Promise.all([api(browseUrl), loadSubfolders(), blurBarP]);
     const q = document.getElementById("queue");
     q.innerHTML = "";
-    renderBrowsePager(data.total, data.offset, data.limit);
+    renderBrowsePager(data.total, data.offset, data.limit, loadBrowse);
     const scope = recursive
       ? "Baum unter " + (browseFolder || "Root")
       : browseFolder
@@ -1573,15 +1582,69 @@
     );
   }
 
+  async function loadSearch() {
+    const q = document.getElementById("searchQuery").value.trim();
+    const tagsRaw = document.getElementById("searchTags").value.trim();
+    if (!q && !tagsRaw) {
+      document.getElementById("queue").innerHTML = "";
+      document.getElementById("browsePager").classList.add("hidden");
+      setStatus("Stichworte und/oder Tag(s) — Enter oder «Suchen». Volltext nur für status=tagged (FTS).");
+      return;
+    }
+    setStatus("Suche in DB …");
+    await loadCatalog();
+    mountCardByNc.clear();
+    const any = document.getElementById("searchAny").checked;
+    const fuzzy = document.getElementById("searchFuzzy").checked;
+    let url =
+      "/api/search?limit=" +
+      BROWSE_PAGE +
+      "&offset=" +
+      searchOffset +
+      "&any=" +
+      (any ? "1" : "0") +
+      "&fuzzy=" +
+      (fuzzy ? "1" : "0");
+    if (q) url += "&q=" + encodeURIComponent(q);
+    if (tagsRaw) url += "&tags=" + encodeURIComponent(tagsRaw);
+    const data = await api(url);
+    const qEl = document.getElementById("queue");
+    qEl.innerHTML = "";
+    renderBrowsePager(data.total, data.offset, data.limit, loadSearch);
+    if (!data.items.length) {
+      setStatus("Keine Treffer — nur getaggte Einträge sind per Volltext indiziert.");
+      return;
+    }
+    data.items.forEach((item) => qEl.appendChild(renderMountItem(item)));
+    const pageNote =
+      data.total > data.limit
+        ? " · Einträge " +
+          (data.offset + 1) +
+          "–" +
+          Math.min(data.offset + data.count, data.total)
+        : "";
+    setStatus(
+      data.total +
+        " DB-Treffer" +
+        pageNote +
+        " — Vorschau aus DB (Thumb), gleiche Karten wie Browse."
+    );
+  }
+
   function syncBrowseChrome() {
     const browse = isBrowseMode();
+    const search = isSearchMode();
     document.getElementById("folderNav").classList.toggle("hidden", !browse);
     document.getElementById("filterWrap").classList.toggle("hidden", !browse);
     document.getElementById("retagWrap").classList.toggle("hidden", !browse);
     document.getElementById("browseRecursiveWrap").classList.toggle("hidden", !browse);
     document.getElementById("subfolders").classList.toggle("hidden", !browse);
+    document.getElementById("searchBar").classList.toggle("hidden", !search);
     const blurBar = document.getElementById("blurSettingsBar");
     if (blurBar) blurBar.classList.toggle("hidden", !browse || !faceblurEnabled);
+    if (!browse && !search) {
+      document.getElementById("browsePager").classList.add("hidden");
+    }
   }
 
   function reload() {
@@ -1589,10 +1652,17 @@
     if (isBrowseMode()) {
       return loadBrowse().catch((e) => setStatus(e.message, true));
     }
+    if (isSearchMode()) {
+      return loadSearch().catch((e) => setStatus(e.message, true));
+    }
     return loadQueue().catch((e) => setStatus(e.message, true));
   }
 
-  document.getElementById("viewMode").onchange = reload;
+  document.getElementById("viewMode").onchange = () => {
+    browseOffset = 0;
+    searchOffset = 0;
+    reload();
+  };
   document.getElementById("browseFilter").onchange = () => {
     browseOffset = 0;
     if (document.getElementById("browseFilter").value === "blurred") {
@@ -1605,6 +1675,17 @@
     if (isBrowseMode()) loadBrowse().catch((e) => setStatus(e.message, true));
   };
   document.getElementById("reloadBtn").onclick = reload;
+  document.getElementById("searchBtn").onclick = () => {
+    searchOffset = 0;
+    loadSearch().catch((e) => setStatus(e.message, true));
+  };
+  document.getElementById("searchQuery").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      searchOffset = 0;
+      loadSearch().catch((err) => setStatus(err.message, true));
+    }
+  });
   document.getElementById("tagFolderBtn").onclick = () =>
     startFolderTagJob().catch((e) => setStatus(e.message, true));
 

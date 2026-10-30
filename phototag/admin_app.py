@@ -1,6 +1,7 @@
 """Local review admin (Flask). Static assets ship in-repo — no CDN."""
 from __future__ import annotations
 
+import re
 import secrets
 from pathlib import Path
 
@@ -149,6 +150,68 @@ def create_app():
         from phototag.cli import load_categories
 
         return jsonify({"tags": [t for t, _ in load_categories()]})
+
+    @app.get("/api/search")
+    def api_search():
+        _check_api_auth()
+        from phototag.cli import connect, load_categories
+        from phototag.admin_mount import _IMAGES_BROWSE_COLS, _mount_entry_from_row
+        from phototag.admin_search import search_image_rows
+        from phototag.blur_jobs import blur_copies_by_source
+        from phototag.nextcloud_sync import nc_dav_relative_path
+
+        con = connect()
+        allowed = {t for t, _ in load_categories()}
+        q = (request.args.get("q") or request.args.get("query") or "").strip()
+        raw_tags = request.args.getlist("tag")
+        if not raw_tags:
+            one = (request.args.get("tags") or "").strip()
+            if one:
+                raw_tags = [p.strip() for p in re.split(r"[,;+]+", one) if p.strip()]
+        tags = [t.lower().replace(" ", "_") for t in raw_tags if t.strip()]
+        any_term = request.args.get("any", "0") in ("1", "true", "yes")
+        fuzzy = request.args.get("fuzzy", "0") in ("1", "true", "yes")
+        folder = (request.args.get("folder") or "").strip()
+        kind = (request.args.get("kind") or "").strip() or None
+        limit = request.args.get("limit", 80, type=int)
+        offset = request.args.get("offset", 0, type=int)
+        if not q and not tags and not folder and not kind:
+            return jsonify({"ok": False, "error": "q, tag, folder oder kind angeben"}), 400
+        sel = ", ".join(f"i.{c.strip()}" for c in _IMAGES_BROWSE_COLS.split(","))
+        rows, total = search_image_rows(
+            con,
+            query=q,
+            tags=tags or None,
+            any_term=any_term,
+            fuzzy=fuzzy,
+            folder=folder,
+            kind=kind,
+            limit=limit,
+            offset=offset,
+            columns=sel,
+        )
+        blur_map = blur_copies_by_source(con)
+        items = []
+        for row in rows:
+            nc_rel = nc_dav_relative_path(row["root"], row["path"])
+            items.append(_mount_entry_from_row(con, nc_rel, row, allowed, blur_map))
+        return jsonify(
+            {
+                "ok": True,
+                "items": items,
+                "count": len(items),
+                "total": total,
+                "query": q,
+                "tags": tags,
+                "any": any_term,
+                "fuzzy": fuzzy,
+                "folder": folder,
+                "kind": kind,
+                "offset": max(0, int(offset)),
+                "limit": max(1, min(200, int(limit))),
+                "source": "db",
+            }
+        )
 
     @app.get("/api/review")
     def api_review_list():
