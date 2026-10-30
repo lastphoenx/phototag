@@ -187,13 +187,15 @@ def list_browse_rows(
 
 
 def tags_for_image(con: sqlite3.Connection, row: sqlite3.Row, allowed: set[str]) -> list[str]:
-    if row["status"] == "tagged":
-        return [
+    if row["status"] in ("tagged", "review"):
+        db_tags = [
             r["tag"]
             for r in con.execute(
                 "SELECT tag FROM tags WHERE image_id=? ORDER BY tag", (row["id"],)
             ).fetchall()
         ]
+        if db_tags:
+            return db_tags
     if row["status"] == "review":
         tags, _, _ = proposed_tags_from_row(row, allowed)
         return tags
@@ -212,7 +214,11 @@ def browse_row_to_api_dict(
         cap = cap_from_raw
     flags: list[str] = []
     if row["status"] == "review":
-        _, _, flags = proposed_tags_from_row(row, allowed)
+        err = row["error"] or ""
+        if err.startswith("sanitize:"):
+            flags = [f for f in err.split(":", 1)[1].split(",") if f]
+        if not flags:
+            _, _, flags = proposed_tags_from_row(row, allowed)
     nc_dir = nc_parent_dir(row["root"], row["path"])
     return {
         "id": row["id"],

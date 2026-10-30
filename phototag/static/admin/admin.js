@@ -524,22 +524,42 @@
           setStatus(inRev ? "Freigabe inkl. push-nc …" : "Speichern inkl. push-nc …");
         }
         const res = await persistImageTags(item, tags, capArea.value.trim(), push);
-        updateStatusBadge(badge, "tagged");
-        item.status = "tagged";
-        item.in_review = false;
+        const inReview =
+          res.status === "review" ||
+          (res.sanitize_flags && res.sanitize_flags.length > 0);
+        if (inReview) {
+          updateStatusBadge(badge, "review");
+          item.status = "review";
+          item.in_review = true;
+        } else {
+          updateStatusBadge(badge, "tagged");
+          item.status = "tagged";
+          item.in_review = false;
+        }
         if (res.id) {
           card.dataset.id = res.id;
           item.id = res.id;
         }
-        const msg =
-          (inRev ? "Freigegeben: " : push ? "DB + NC: " : "Gespeichert: ") +
-          item.nc_path +
-          (res.pushed_tags ? " (" + res.pushed_tags + " Tags NC)" : "");
+        if (res.tags && res.tags.length) {
+          item.tags = res.tags;
+          getTagsRef.current = renderTagEditor(tagBlock, res.tags, tagCatalog, false);
+        }
+        let msg =
+          (inRev ? "Freigabe: " : push && !inReview ? "DB + NC: " : "Gespeichert: ") +
+          item.nc_path;
+        if (inReview) {
+          msg += " → Review (sanitize)";
+          if (res.sanitize_flags && res.sanitize_flags.length) {
+            msg += ": " + res.sanitize_flags.join(", ");
+          }
+        } else if (res.pushed_tags) {
+          msg += " (" + res.pushed_tags + " Tags NC)";
+        }
         setStatus(msg);
         flashActionOk(
           card,
           saveBtn,
-          inRev ? "Freigegeben ✓" : "Gespeichert ✓",
+          inReview ? "Review ✓" : inRev ? "Freigegeben ✓" : "Gespeichert ✓",
           "Speichern"
         );
       } catch (e) {

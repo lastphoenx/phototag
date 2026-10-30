@@ -74,7 +74,7 @@ def approve_image(
     tags: list[str] | None = None,
     caption: str | None = None,
 ) -> dict[str, Any]:
-    from phototag.cli import index_image, load_categories
+    from phototag.cli import index_image, load_categories, prepare_stored_tags, sanitize_review_note
 
     row = con.execute("SELECT * FROM images WHERE id=?", (image_id,)).fetchone()
     if not row:
@@ -86,9 +86,11 @@ def approve_image(
     proposed, cap_from_raw, flags = proposed_tags_from_row(row, allowed)
 
     if tags is not None:
-        final_tags = normalize_chosen_tags(tags, allowed)
-        if not final_tags:
-            raise ValueError(f"id={image_id} keine gültigen Tags (categories.txt)")
+        final_tags, sanitize_flags = prepare_stored_tags(tags, allowed)
+        if sanitize_flags:
+            raise ValueError(
+                f"id={image_id} sanitize: {','.join(sanitize_flags)} — Tags anpassen, dann erneut freigeben"
+            )
         final_caption = (caption or row["caption"] or cap_from_raw or "")[: caption_max()]
     else:
         if flags:

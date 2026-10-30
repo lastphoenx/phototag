@@ -37,6 +37,7 @@ nano phototag.env
 - Optional in **`phototag.env`:** `PHOTOTAG_REQUIRED_TAGS_FILE` (eine Tag-ID pro Zeile; nur Server).
 - Tag-Widersprüche: optional **`PHOTOTAG_SANITIZE_RULES`** (Pfad zu JSON **nur auf dem Server** — kein Beispiel im GitHub-Repo; Homelab-Master privat in `doku/`).
 - **Zensur-/Prompt-Anpassungen:** optional **`PHOTOTAG_TAGGING_CUSTOM`** (JSON **nur auf dem Server** — Master `tempdok/telegram/phototag2/tagging-custom.json`; ohne Datei nur generischer Kurz-Prompt).
+- **Sanitize in UI:** Browse-**Speichern** und KI-Lauf nutzen dieselbe `sanitize_tags`-Pipeline (ab 0.5.18); bei Flags → **review**, kein push-nc bis bereinigt.
 
 ## 4. Verifizieren
 

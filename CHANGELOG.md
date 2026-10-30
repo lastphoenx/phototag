@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.18
+
+- **Sanitize überall:** Browse-**Speichern** und gleiche Pipeline wie KI (`prepare_stored_tags`); Review-Flags in UI; push-nc nur bei status tagged nach Sanitize.
+
 ## 0.5.17
 
 - **Custom strip:** `when` + `when_any_in` / `when_all_in` — z. B. `genitals_visible` entfernen wenn `breasts_censored` oder andere Zensur-Tags; Prompt-Hinweis `vulva_censor_hint` (nur via JSON).

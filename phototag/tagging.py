@@ -146,9 +146,7 @@ def tag_one_row(
             "error": str(exc),
         }
     status = "tagged" if age_status == "yes" and not sanitize_flags else "review"
-    review_note = None
-    if sanitize_flags:
-        review_note = "sanitize:" + ",".join(sanitize_flags)
+    review_note = sanitize_review_note(sanitize_flags)
     con.execute("DELETE FROM tags WHERE image_id=?", (row["id"],))
     if status == "tagged":
         con.executemany("INSERT INTO tags VALUES(?,?)", [(row["id"], t) for t in tags])

@@ -97,13 +97,15 @@ def _row_matches_filter(row: sqlite3.Row | None, filter_key: str) -> bool:
 def _tags_for_row(con: sqlite3.Connection, row: sqlite3.Row | None, allowed: set[str]) -> list[str]:
     if not row:
         return []
-    if row["status"] == "tagged":
-        return [
+    if row["status"] in ("tagged", "review"):
+        db_tags = [
             r["tag"]
             for r in con.execute(
                 "SELECT tag FROM tags WHERE image_id=? ORDER BY tag", (row["id"],)
             ).fetchall()
         ]
+        if db_tags:
+            return db_tags
     if row["status"] == "review":
         tags, _, _ = proposed_tags_from_row(row, allowed)
         return tags
@@ -128,7 +130,11 @@ def _mount_entry_from_row(
         if not cap:
             _, cap_from_raw, _ = proposed_tags_from_row(row, allowed)
             cap = cap_from_raw
-        _, _, flags = proposed_tags_from_row(row, allowed)
+        err = row["error"] or ""
+        if err.startswith("sanitize:"):
+            flags = [f for f in err.split(":", 1)[1].split(",") if f]
+        if not flags:
+            _, _, flags = proposed_tags_from_row(row, allowed)
     status = row["status"] if row else "unindexed"
     return {
         "nc_path": nc_rel,
@@ -269,23 +275,25 @@ def save_mount_tags(
     push_nc: bool = False,
     allowed: set[str],
 ) -> dict[str, Any]:
+    from phototag.cli import index_image, prepare_stored_tags, sanitize_review_note
+
     row = ensure_indexed_from_mount(con, nc_rel)
     image_id = row["id"]
-    final_tags = normalize_chosen_tags(tags, allowed)
-    if not final_tags:
-        raise ValueError("Mindestens ein gültiger Tag (categories.txt)")
+    final_tags, sanitize_flags = prepare_stored_tags(tags, allowed)
     final_caption = (caption or "")[: caption_max()]
+    status = "review" if sanitize_flags else "tagged"
+    review_note = sanitize_review_note(sanitize_flags)
     con.execute("DELETE FROM nc_pushed WHERE image_id=?", (image_id,))
     con.execute("DELETE FROM tags WHERE image_id=?", (image_id,))
     con.executemany("INSERT INTO tags VALUES(?,?)", [(image_id, t) for t in final_tags])
     con.execute(
-        "UPDATE images SET status='tagged', caption=?, error=NULL WHERE id=?",
-        (final_caption, image_id),
+        "UPDATE images SET status=?, caption=?, error=? WHERE id=?",
+        (status, final_caption, review_note, image_id),
     )
     index_image(con, image_id)
     con.commit()
     pushed = 0
-    if push_nc:
+    if push_nc and status == "tagged":
         from phototag.nextcloud_sync import load_nc_config, push_image_tags
 
         cfg = load_nc_config()
@@ -304,8 +312,10 @@ def save_mount_tags(
         "ok": True,
         "id": image_id,
         "nc_path": nc_rel,
+        "status": status,
         "tags": final_tags,
         "caption": final_caption,
+        "sanitize_flags": sanitize_flags,
         "pushed_tags": pushed,
     }
 

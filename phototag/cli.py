@@ -582,6 +582,22 @@ def sanitize_tags(tags: list[str], allowed: set[str]) -> tuple[list[str], list[s
     return cleaned, flags
 
 
+def prepare_stored_tags(tags: list[str], allowed: set[str]) -> tuple[list[str], list[str]]:
+    """Tags für DB/NC: categories-Filter + sanitize (wie KI-Lauf)."""
+    from phototag.review_queue import normalize_chosen_tags
+
+    base = normalize_chosen_tags(tags, allowed)
+    if not base:
+        raise ValueError("Mindestens ein gültiger Tag (categories.txt)")
+    return sanitize_tags(base, allowed)
+
+
+def sanitize_review_note(flags: list[str]) -> str | None:
+    if not flags:
+        return None
+    return "sanitize:" + ",".join(flags)
+
+
 def _print_tag_extras(out: dict, caption: str, dropped: list[str], verbose: bool, sanitize_flags: list[str] | None = None) -> None:
     if not verbose:
         return

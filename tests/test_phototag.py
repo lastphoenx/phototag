@@ -407,6 +407,33 @@ def test_strip_invalid_detail_under_censor(tmp_path: Path, monkeypatch: pytest.M
     assert "anus_detail_under_censor" in flags
 
 
+def test_prepare_stored_tags_sanitize_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import json
+
+    from phototag.cli import prepare_stored_tags
+
+    rules_path = tmp_path / "sanitize.json"
+    rules_path.write_text(
+        json.dumps(
+            {
+                "drop_on_pair": [
+                    {
+                        "if_all": ["alpha", "beta"],
+                        "drop": "beta",
+                        "flag": "alpha_beta",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PHOTOTAG_TAG_SANITIZE", "1")
+    monkeypatch.setenv("PHOTOTAG_SANITIZE_RULES", str(rules_path))
+    tags, flags = prepare_stored_tags(["alpha", "beta"], {"alpha", "beta"})
+    assert "beta" not in tags
+    assert "alpha_beta" in flags
+
+
 def test_strip_genitals_visible_with_breast_censor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     import json
 
