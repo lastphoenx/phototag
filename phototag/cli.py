@@ -193,12 +193,27 @@ def cmd_scan(args) -> None:
     if not root.is_dir():
         sys.exit(f"Kein Ordner: {root}")
 
-    def scan_log(msg: str) -> None:
-        print(msg, file=sys.stderr, flush=True)
+    progress_file = os.environ.get("PHOTOTAG_SCAN_PROGRESS", "").strip()
+    if not progress_file:
+        progress_file = str(Path(db_path()).parent / "scan-progress.log")
+    progress_first = True
 
-    scan_log(f"scan: start {root}")
+    def scan_log(msg: str) -> None:
+        nonlocal progress_first
+        line = f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {msg}"
+        print(line, file=sys.stderr, flush=True)
+        try:
+            mode = "w" if progress_first else "a"
+            progress_first = False
+            with open(progress_file, mode, encoding="utf-8") as fh:
+                fh.write(line + "\n")
+        except OSError:
+            pass
+
+    scan_log(f"scan: start {root} → log: {progress_file}")
     con = connect()
     new = changed = seen = 0
+    hash_ops = 0
     pending_commit = 0
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
@@ -223,6 +238,9 @@ def cmd_scan(args) -> None:
                     pending_commit += 1
                 continue
             digest = sha1_of(p)
+            hash_ops += 1
+            if hash_ops == 1 or hash_ops % 25 == 0:
+                scan_log(f"scan: hash {hash_ops} … {rel}")
             if row:
                 con.execute(
                     "UPDATE images SET size=?,mtime=?,sha1=?,folder=?,kind=?,status='new',error=NULL WHERE id=?",

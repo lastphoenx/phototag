@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.13
+
+- **Scan-Fortschritt:** `state/scan-progress.log` (Zeitstempel, alle 200 Dateien, alle 25 Hashes mit Pfad) — **`tail -f /opt/phototag/state/scan-progress.log`** unabhängig vom Journal.
+
 ## 0.5.12
 
 - **`phototag scan`:** Fortschritt alle 200 Mediendateien auf **stderr** (sichtbar in `journalctl`); Nacht-Skript setzt **`PYTHONUNBUFFERED=1`**.

@@ -48,6 +48,7 @@ hour_lt_end() {
 
 cd "$INSTALL_DIR"
 export PYTHONUNBUFFERED=1
+export PHOTOTAG_SCAN_PROGRESS="${INSTALL_DIR}/state/scan-progress.log"
 PT="${INSTALL_DIR}/.venv/bin/phototag"
 PY="${INSTALL_DIR}/.venv/bin/python"
 [[ -x "$PY" ]] || { echo "FEHLT: $PY" >&2; exit 1; }
@@ -116,6 +117,7 @@ run_tag() {
 
 NOW_H="$(current_hour)"
 echo "$(date -Is) night-tag-loop: Stunde=$NOW_H END_HOUR=$END_HOUR FORCE=$FORCE scan=$SCAN_ROOT db=${PHOTOTAG_DB:-?} batch=$BATCH sleep=${SLEEP_SEC}s images_first=$IMAGES_FIRST kind=${NIGHT_KIND:-all}"
+echo "  Fortschritt Scan: tail -f ${PHOTOTAG_SCAN_PROGRESS}"
 
 if [[ "$FORCE" != 1 ]] && ! hour_lt_end; then
   echo "FEHLER: Nacht-Fenster zu — Stunde $NOW_H ist nicht < END_HOUR=$END_HOUR (läuft typisch 00:00–06:59)." >&2
