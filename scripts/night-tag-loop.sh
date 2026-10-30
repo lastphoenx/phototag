@@ -81,6 +81,16 @@ if [[ "$SELF_TEST" -eq 1 ]]; then
   exit 0
 fi
 
+mkdir -p "${INSTALL_DIR}/state"
+LOCKFILE="${INSTALL_DIR}/state/night-tag.lock"
+exec 200>"$LOCKFILE"
+if ! flock -n 200; then
+  echo "FEHLER: night-tag-loop läuft bereits (Lock: $LOCKFILE)." >&2
+  echo "  Prüfen: systemctl status phototag-night.service" >&2
+  echo "  Nicht parallel: run-night-catchup.sh oder zweites systemctl start." >&2
+  exit 1
+fi
+
 if [[ -x "${INSTALL_DIR}/scripts/ensure-rclone-mount.sh" ]]; then
   "${INSTALL_DIR}/scripts/ensure-rclone-mount.sh" || exit 1
 fi

@@ -2,6 +2,11 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.11
+
+- **SQLite:** `busy_timeout` + Scan committet alle 150 Dateien (weniger „database is locked“ bei langem Scan).
+- **night-tag-loop:** `flock` — kein zweiter Lauf parallel (systemd + catch-up).
+
 ## 0.5.10
 
 - **night-tag-loop:** Klare Meldung + **Exit 1** wenn Stunde ≥ `END_HOUR` (vorher: leerer Erfolg, „Job startet“ ohne Wirkung). **`run-night-catchup.sh`** / `PHOTOTAG_NIGHT_FORCE=1` = eine Scan+Tag-Runde tagsüber. **`--self-test`** prüft DB ohne Mount.

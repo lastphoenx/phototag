@@ -101,9 +101,10 @@ CREATE INDEX IF NOT EXISTS images_folder_status ON images(folder, status);
 
 
 def connect() -> sqlite3.Connection:
-    con = sqlite3.connect(db_path())
+    con = sqlite3.connect(db_path(), timeout=120.0)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
+    con.execute("PRAGMA busy_timeout=120000")
     con.execute("PRAGMA journal_mode=WAL")
     con.executescript(SCHEMA)
     con.execute("CREATE INDEX IF NOT EXISTS images_folder ON images(folder)")
@@ -193,6 +194,7 @@ def cmd_scan(args) -> None:
         sys.exit(f"Kein Ordner: {root}")
     con = connect()
     new = changed = seen = 0
+    pending_commit = 0
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
         for name in filenames:
@@ -211,6 +213,7 @@ def cmd_scan(args) -> None:
                 if row["folder"] != folder or row["kind"] != kind:
                     con.execute("UPDATE images SET folder=?,kind=? WHERE id=?", (folder, kind, row["id"]))
                     index_image(con, row["id"])
+                    pending_commit += 1
                 continue
             digest = sha1_of(p)
             if row:
@@ -225,6 +228,10 @@ def cmd_scan(args) -> None:
                     (str(root), rel, folder, kind, st.st_size, st.st_mtime, digest),
                 )
                 new += 1
+            pending_commit += 1
+            if pending_commit >= 150:
+                con.commit()
+                pending_commit = 0
     con.commit()
     print(f"{seen} Dateien gesehen, {new} neu, {changed} geändert.")
 
