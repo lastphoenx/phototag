@@ -10,6 +10,7 @@
 #   PHOTOTAG_NIGHT_KIND=image   nur Bilder | video | leer = beides
 #   PHOTOTAG_NIGHT_IMAGES_FIRST=1   erst alle Bilder, dann Videos/Fehler
 #   PHOTOTAG_NIGHT_FORCE=1          eine Runde scan+tag (ignoriert END_HOUR) — siehe run-night-catchup.sh
+#   PHOTOTAG_NIGHT_RESCAN_WHEN_IDLE=1  bei leerer Queue erneut scannen (Default: 0 — kein Scan pro Runde)
 set -euo pipefail
 
 INSTALL_DIR="${PHOTOTAG_INSTALL_DIR:-/opt/phototag}"
@@ -22,6 +23,7 @@ END_HOUR="${PHOTOTAG_NIGHT_END_HOUR:-7}"
 NIGHT_KIND="${PHOTOTAG_NIGHT_KIND:-}"
 IMAGES_FIRST="${PHOTOTAG_NIGHT_IMAGES_FIRST:-0}"
 FORCE="${PHOTOTAG_NIGHT_FORCE:-0}"
+RESCAN_IDLE="${PHOTOTAG_NIGHT_RESCAN_WHEN_IDLE:-0}"
 
 [[ -f "$ENV_FILE" ]] || { echo "Fehlt: $ENV_FILE" >&2; exit 1; }
 
@@ -126,21 +128,26 @@ if [[ "$FORCE" != 1 ]] && ! hour_lt_end; then
   exit 1
 fi
 
+echo "$(date -Is) Index: einmal scan $SCAN_ROOT (kein Voll-Scan pro Tag-Runde)"
+"$PT" scan "$SCAN_ROOT"
+
 rounds=0
 while [[ "$FORCE" == 1 ]] || hour_lt_end; do
   rounds=$((rounds + 1))
-  echo "$(date -Is) Runde $rounds: scan $SCAN_ROOT …"
-  "$PT" scan "$SCAN_ROOT"
   pending="$(pending_count)"
   if [[ "$pending" -eq 0 ]]; then
-    echo "$(date -Is) nichts zu taggen — warte ${SLEEP_SEC}s (scan erneut)"
-    if [[ "$FORCE" == 1 ]]; then
-      echo "$(date -Is) FORCE: keine pending nach scan — Ende."
+    if [[ "$RESCAN_IDLE" == 1 ]] && [[ "$FORCE" != 1 ]]; then
+      echo "$(date -Is) Queue leer — optional rescan (PHOTOTAG_NIGHT_RESCAN_WHEN_IDLE=1)"
+      "$PT" scan "$SCAN_ROOT"
+      pending="$(pending_count)"
+    fi
+    if [[ "$pending" -eq 0 ]]; then
+      echo "$(date -Is) nichts zu taggen — Ende (kein erneuter Voll-Scan)."
+      if [[ "$FORCE" == 1 ]]; then
+        echo "$(date -Is) FORCE: fertig."
+      fi
       break
     fi
-    sleep "$SLEEP_SEC"
-    hour_lt_end || break
-    continue
   fi
   if [[ "$IMAGES_FIRST" == 1 ]]; then
     pimg="$(pending_count image)"
@@ -152,11 +159,11 @@ while [[ "$FORCE" == 1 ]] || hour_lt_end; do
       run_tag
     fi
   else
-    echo "$(date -Is) taggen (pending=$pending, limit=$BATCH)"
+    echo "$(date -Is) Runde $rounds: taggen (pending=$pending, limit=$BATCH)"
     run_tag
   fi
   if [[ "$FORCE" == 1 ]]; then
-    echo "$(date -Is) FORCE: eine Runde fertig (scan + tag batch)."
+    echo "$(date -Is) FORCE: eine Tag-Batch nach Scan — Ende."
     break
   fi
   hour_lt_end || break
@@ -164,7 +171,7 @@ while [[ "$FORCE" == 1 ]] || hour_lt_end; do
 done
 
 if [[ "$rounds" -eq 0 ]]; then
-  echo "FEHLER: 0 Runden ausgeführt (Stunde=$NOW_H END_HOUR=$END_HOUR)." >&2
+  echo "FEHLER: 0 Tag-Runden (Stunde=$NOW_H END_HOUR=$END_HOUR)." >&2
   exit 1
 fi
 

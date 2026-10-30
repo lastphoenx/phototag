@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.14
+
+- **Nacht-Lauf:** **Ein** `scan` pro Nacht-Job, danach nur **`tag`-Batches** — kein Voll-Scan in jeder Schleifen-Runde mehr (rclone/CT-schonend). Optional `PHOTOTAG_NIGHT_RESCAN_WHEN_IDLE=1`.
+
 ## 0.5.13
 
 - **Scan-Fortschritt:** `state/scan-progress.log` (Zeitstempel, alle 200 Dateien, alle 25 Hashes mit Pfad) — **`tail -f /opt/phototag/state/scan-progress.log`** unabhängig vom Journal.

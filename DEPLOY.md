@@ -187,8 +187,11 @@ CT braucht **FUSE** (`fuse3`, ggf. `pct set 142 -features fuse=1` + Reboot). `ni
 | Variable | Default im Skript | Zweck |
 |----------|-------------------|--------|
 | `PHOTOTAG_NIGHT_BATCH` | 20 | Max. Dateien **pro** `phototag tag`-Aufruf (Ollama entlasten, Abbruch um 07:00 feiner) |
-| `PHOTOTAG_NIGHT_SLEEP` | 45 | Sekunden **zwischen** Runden (scan → tag → warten) — GPU/CPU für andere Dienste |
+| `PHOTOTAG_NIGHT_SLEEP` | 45 | Sekunden **zwischen Tag-Batches** (nach dem einmaligen Scan) |
 | `PHOTOTAG_NIGHT_END_HOUR` | 7 | Schleife endet ab 07:00 |
+| `PHOTOTAG_NIGHT_RESCAN_WHEN_IDLE` | 0 | **0** = kein erneuter Voll-Scan wenn Queue leer (Default). **1** = ein Rescan wenn `new`/`error` leer |
+
+**Ablauf Nacht:** **einmal** `phototag scan` auf `PHOTOTAG_SCAN_ROOT`, danach bis 07:00 nur **`phototag tag`** in Batches — **kein** Voll-Scan pro Runde (früher: verschwendete rclone-Läufe).
 
 Kleiner Bestand, schnelle Nacht: z. B. `BATCH=50`, `SLEEP=10`. Volle Bibliothek, vorsichtig: `BATCH=10`, `SLEEP=90`. Alles in **`phototag.env`**.
 
