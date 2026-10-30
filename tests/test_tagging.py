@@ -36,16 +36,19 @@ def test_row_in_scope_nc_and_folder(env_db):
     assert row_in_scope(r1, nc_paths={nc1}, folders=[], recursive=True)
     assert not row_in_scope(r2, nc_paths={nc1}, folders=[], recursive=True)
     assert row_in_scope(r2, nc_paths=set(), folders=["Photos"], recursive=True)
-    assert not row_in_scope(r2, nc_paths=set(), folders=["Photos"], recursive=False)
+    assert row_in_scope(r2, nc_paths=set(), folders=["Photos"], recursive=False)  # direktes Kind
+    r3 = _insert(con, mount, "Photos/sub/c.jpg", "Photos/sub", "new")
+    assert row_in_scope(r3, nc_paths=set(), folders=["Photos"], recursive=True)
+    assert not row_in_scope(r3, nc_paths=set(), folders=["Photos"], recursive=False)
 
 
 def test_select_tag_candidates_review_not_default(env_db):
     mount = env_db
     con = connect()
-    _insert(con, mount, "x.jpg", "", "review")
-    rows = select_tag_candidates(con, folders=[""], recursive=True)
+    _insert(con, mount, "d/x.jpg", "d", "review")
+    rows = select_tag_candidates(con, folders=["d"], recursive=True)
     assert len(rows) == 0
-    rows2 = select_tag_candidates(con, retag=True, folders=[""], recursive=True)
+    rows2 = select_tag_candidates(con, retag=True, folders=["d"], recursive=True)
     assert len(rows2) == 1
 
 

@@ -85,7 +85,7 @@ def nc_user() -> str:
 
 
 def scan_root() -> str:
-    """Mount / local tree root (same as phototag scan when indexing full OF)."""
+    """Mount / local tree root (same as phototag scan when indexing the full tree)."""
     return os.getenv("PHOTOTAG_SCAN_ROOT", "").strip()
 
 
@@ -231,14 +231,20 @@ def verify_admin_password(candidate: str) -> bool:
     return secrets.compare_digest(candidate, plain)
 
 
+_ephemeral_session_secret: str | None = None
+
+
 def admin_session_secret() -> str:
+    """Cookie-Signatur. Env PHOTOTAG_ADMIN_SESSION_SECRET oder Zufall pro Prozess (kein fester Default)."""
+    import secrets
+
+    global _ephemeral_session_secret
     explicit = os.getenv("PHOTOTAG_ADMIN_SESSION_SECRET", "").strip()
     if explicit:
         return explicit
-    tok = admin_token()
-    if tok:
-        return tok
-    return "phototag-admin-change-me"
+    if _ephemeral_session_secret is None:
+        _ephemeral_session_secret = secrets.token_hex(32)
+    return _ephemeral_session_secret
 
 
 def validate_admin_auth_config() -> None:

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stellt rclone-Mount fuer PHOTOTAG_SCAN_ROOT her (wenn PHOTOTAG_RCLONE_MOUNT gesetzt).
-# Homelab: Remote-Name nur in phototag.env (z. B. nextcloud_OF: oder nextcloud_OF:OF).
+# Remote-Name nur in phototag.env (z. B. nextcloud_media: oder nextcloud_media:Media).
 set -euo pipefail
 
 INSTALL_DIR="${PHOTOTAG_INSTALL_DIR:-/opt/phototag}"

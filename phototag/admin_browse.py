@@ -29,7 +29,7 @@ def resolve_images_root(con: sqlite3.Connection) -> str:
 
 
 def physical_path_for_logical(logical_parent: str) -> Path:
-    """Map OF-relative browse path to PHOTOTAG_SCAN_ROOT on disk."""
+    """Map root-relative browse path to PHOTOTAG_SCAN_ROOT on disk."""
     base = Path(scan_root()).resolve()
     parent = normalize_folder(logical_parent)
     if not parent:
@@ -51,7 +51,7 @@ def mount_accessible() -> bool:
 
 
 def list_child_folders_fs(logical_parent: str) -> list[str]:
-    """Subfolders from rclone mount / PHOTOTAG_SCAN_ROOT (full OF tree)."""
+    """Subfolders from rclone mount / PHOTOTAG_SCAN_ROOT (full media tree)."""
     parent = normalize_folder(logical_parent)
     try:
         physical = physical_path_for_logical(parent)

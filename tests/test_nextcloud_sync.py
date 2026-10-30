@@ -132,12 +132,12 @@ def test_push_nc_mock_server(nc_env: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_nc_dav_relative_path_subfolder_scan(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("PHOTOTAG_SCAN_ROOT", "/mnt/nextcloud-of")
+    monkeypatch.setenv("PHOTOTAG_SCAN_ROOT", "/mnt/media")
     assert (
-        nc_dav_relative_path("/mnt/nextcloud-of/Zum Löschen/Test", "IMG_1599.MOV")
-        == "Zum Löschen/Test/IMG_1599.MOV"
+        nc_dav_relative_path("/mnt/media/Album/Test", "IMG_0001.MOV")
+        == "Album/Test/IMG_0001.MOV"
     )
-    assert nc_dav_relative_path("/mnt/nextcloud-of", "foo.jpg") == "foo.jpg"
+    assert nc_dav_relative_path("/mnt/media", "foo.jpg") == "foo.jpg"
     assert nc_dav_relative_path("/var/cache/quick", "foo.jpg") == "foo.jpg"
 
 

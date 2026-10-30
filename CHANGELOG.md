@@ -2,6 +2,12 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.24
+
+- **Fix KI-Tagging:** `sanitize_review_note` import; `nc_pushed`-Tabelle vor Speichern/Freigeben; `too_many_tags` → Review statt alphabetischem Abschneiden.
+- **Security:** kein Default-Session-Key; API-Token timing-safe; XSS-Fix Job-Panel (`escHtml`).
+- **Public repo:** neutrale Beispiele/Doku/Tests (Patch 09); `.gitignore` für `state/`, `phototag.env`, `sanitize-rules.json`.
+
 ## 0.5.23
 
 - **Telegram Temp:** Cleanup nach Upload (auch bei Worker-Abbruch: Sweep alter `phototag-tg-*`); Dateiname in Telegram = Original-Stem (`.mp4`).
@@ -28,15 +34,15 @@ Format: Version → was für **Deploy** relevant ist.
 
 ## 0.5.17
 
-- **Custom strip:** `when` + `when_any_in` / `when_all_in` — z. B. `genitals_visible` entfernen wenn `breasts_censored` oder andere Zensur-Tags; Prompt-Hinweis `vulva_censor_hint` (nur via JSON).
+- **Custom strip:** Regeln in `PHOTOTAG_TAGGING_CUSTOM` unterstützen `when` + `when_any_in` / `when_all_in` (Tags entfernen, wenn bestimmte andere Tags vorliegen).
 
 ## 0.5.16
 
-- **KI:** Sensitive Zensur-Prompts und `strip_under_censor` aus **`PHOTOTAG_TAGGING_CUSTOM`** (JSON nur Server/tempdok); öffentlicher Code = Loader + generischer Fallback. Gesichts-Partial-Tags über categories + Custom-Prompt (`face_partial_*`, `face_visible`).
+- **KI:** Prompt-Zusätze und Strip-Regeln aus **`PHOTOTAG_TAGGING_CUSTOM`** (JSON nur auf dem Server); öffentlicher Code = Loader + generischer Fallback.
 
 ## 0.5.15
 
-- **KI:** Zusatz-Prompt für absichtliche Anonymisierung (Blur/Mosaik/Balken) vs. Bokeh; granulare `*_censored`-Regionen inkl. Gesäß/After/Hoden/rear; **kein** `genitals_shaved`/Anatomie-Detail unter Zensur (Prompt + `strip_invalid_detail_under_censor` bei Sanitize).
+- **KI:** Zusatz-Prompt für absichtliche Anonymisierung (Blur/Mosaik/Balken) vs. Bokeh; Detail-Tags unter verdeckten Bereichen werden bei Sanitize entfernt.
 
 ## 0.5.14
 
@@ -74,7 +80,7 @@ Format: Version → was für **Deploy** relevant ist.
 
 ## 0.5.6
 
-- **`categories.example.txt`:** Abschnitt Stoff/Transparenz (`sheer`, `see_through`, `sheer_wet`, …) als Vorlage für lokale `categories.txt`.
+- **`categories.example.txt`:** Abschnitt Stoff/Material als Vorlage für lokale `categories.txt`.
 
 ## 0.5.5
 
@@ -114,7 +120,7 @@ Format: Version → was für **Deploy** relevant ist.
 
 ## 0.3.32
 
-- **Admin-Browse:** Unterordner vom **Mount** (`PHOTOTAG_SCAN_ROOT`) plus DB — ganzer OF-Baum sichtbar; Dateien weiterhin nur wo **scan** indexiert hat. Bildliste über alle DB-`root`-Werte.
+- **Admin-Browse:** Unterordner vom **Mount** (`PHOTOTAG_SCAN_ROOT`) plus DB — ganzer Medienbaum sichtbar; Dateien weiterhin nur wo **scan** indexiert hat. Bildliste über alle DB-`root`-Werte.
 
 ## 0.3.31
 
@@ -122,7 +128,7 @@ Format: Version → was für **Deploy** relevant ist.
 
 ## 0.3.30
 
-- **Admin-UI:** grösseres Caption-Feld; **Ordner durchsuchen** (OF-Breadcrumb, Unterordner, Filter: alle / Review / mit Tags / ohne Tags). API: `/api/browse`, `/api/browse/folders`.
+- **Admin-UI:** grösseres Caption-Feld; **Ordner durchsuchen** (Breadcrumb, Unterordner, Filter: alle / Review / mit Tags / ohne Tags). API: `/api/browse`, `/api/browse/folders`.
 
 ## 0.3.29
 
@@ -130,7 +136,7 @@ Format: Version → was für **Deploy** relevant ist.
 
 ## 0.3.28
 
-- **Review-Admin Dauerbetrieb:** `scripts/systemd/phototag-admin.service`, `run-admin-wsgi.sh` (gunicorn), **`install-admin-service.sh`**. LAN ohne SSH (`BIND=0.0.0.0` in der Unit). Updates: `pip install -e ".[admin]"`. 2FA weiterhin per Homelab-Reverse-Proxy (DEPLOY.md).
+- **Review-Admin Dauerbetrieb:** `scripts/systemd/phototag-admin.service`, `run-admin-wsgi.sh` (gunicorn), **`install-admin-service.sh`**. LAN ohne SSH (`BIND=0.0.0.0` in der Unit). Updates: `pip install -e ".[admin]"`. 2FA optional per vorgeschaltetem Reverse-Proxy (DEPLOY.md).
 
 ## 0.3.27
 
@@ -138,7 +144,7 @@ Format: Version → was für **Deploy** relevant ist.
 
 ## 0.3.26
 
-- **Admin-UI:** Login mit **`PHOTOTAG_ADMIN_USER` / `PHOTOTAG_ADMIN_PASSWORD`** (Session-Cookie), Standard-**`BIND=0.0.0.0`** für LAN ohne SSH. Optional **`PHOTOTAG_ADMIN_TOKEN`** nur noch für API-Header. 2FA über Homelab-Reverse-Proxy (Doku privat).
+- **Admin-UI:** Login mit **`PHOTOTAG_ADMIN_USER` / `PHOTOTAG_ADMIN_PASSWORD`** (Session-Cookie), Standard-**`BIND=0.0.0.0`** für LAN ohne SSH. Optional **`PHOTOTAG_ADMIN_TOKEN`** nur noch für API-Header. 2FA optional über vorgeschalteten Reverse-Proxy.
 
 ## 0.3.25
 
@@ -152,7 +158,7 @@ Format: Version → was für **Deploy** relevant ist.
 
 ## 0.3.23
 
-- **`push-nc`:** WebDAV-Pfad aus `PHOTOTAG_SCAN_ROOT` + DB-`root` + `path` — Subfolder-Scan (z. B. `…/Zum Löschen/Test`) braucht **kein** manuelles Überschreiben von `PHOTOTAG_NC_DAV_PREFIX` mehr; `.env` bleibt `PHOTOTAG_NC_DAV_PREFIX=OF`.
+- **`push-nc`:** WebDAV-Pfad aus `PHOTOTAG_SCAN_ROOT` + DB-`root` + `path` — Subfolder-Scan (z. B. `…/Album/Test`) braucht **kein** manuelles Überschreiben von `PHOTOTAG_NC_DAV_PREFIX` mehr; `.env` bleibt `PHOTOTAG_NC_DAV_PREFIX=Media`.
 
 ## 0.3.22
 
@@ -160,13 +166,13 @@ Format: Version → was für **Deploy** relevant ist.
 
 ## 0.3.21
 
-- `docs/sanitize-rules.example.json` entfernt — **keine** Sanitize-/Regel-JSON im GitHub-Repo (nur Server + privates `doku/`).
+- `docs/sanitize-rules.example.json` entfernt — **keine** Sanitize-/Regel-JSON im GitHub-Repo (nur auf dem Server).
 
 ## 0.3.20
 
 - **Public repo:** Snippet-/Required-Tag-Dateien entfernt; `post-update.sh` ohne Tag-Texte.
 - Sanitize: nur generisches `outdoor`/`indoor` im Code; weitere Regeln optional via **`PHOTOTAG_SANITIZE_RULES`** (JSON-Pfad nur auf dem Server, **keine** Regel-Datei im Repo).
-- Doku/Beispiele generisch (kein Homelab-Ordnerprefix in Referenz).
+- Doku/Beispiele generisch.
 
 ## 0.3.19
 
@@ -182,7 +188,7 @@ Format: Version → was für **Deploy** relevant ist.
 - Nacht-Skript: **`PHOTOTAG_SCAN_ROOT` nur aus `phototag.env`** (kein fester Beispiel-Mount).
 - **`PHOTOTAG_NIGHT_IMAGES_FIRST=1`**, **`PHOTOTAG_NIGHT_KIND`**, Defaults Batch **20** / Sleep **45**.
 - systemd-Vorlage: `EnvironmentFile=phototag.env` — Timer **nicht** automatisch auf dem Server.
-- Doku: `DEPLOY.md` Nacht-Abschnitt erweitert; Homelab: `doku/phototag/nacht-tagging.md`.
+- Doku: `DEPLOY.md` Nacht-Abschnitt erweitert.
 
 ## 0.3.16
 

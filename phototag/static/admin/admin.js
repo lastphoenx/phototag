@@ -761,7 +761,7 @@
     const rootBtn = document.createElement("button");
     rootBtn.type = "button";
     rootBtn.className = "link";
-    rootBtn.textContent = "OF";
+    rootBtn.textContent = "Root";
     rootBtn.onclick = () => {
       browseFolder = "";
       browseOffset = 0;
@@ -870,13 +870,22 @@
     }
   }
 
+  function escHtml(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   function renderJobPanelContent(job, trackCards) {
     const parts = [];
     parts.push(
       "<strong>Tag-Job " +
-        job.id +
+        escHtml(job.id) +
         "</strong> " +
-        job.status +
+        escHtml(job.status) +
         " — " +
         job.done +
         "/" +
@@ -887,10 +896,10 @@
         job.fail_count
     );
     if (job.current_nc_path && job.status === "running") {
-      parts.push("<div class=\"job-current\"><strong>aktiv:</strong> " + job.current_nc_path + "</div>");
+      parts.push("<div class=\"job-current\"><strong>aktiv:</strong> " + escHtml(job.current_nc_path) + "</div>");
     }
     if (job.last_error && job.fail_count) {
-      parts.push("<div class=\"job-err\">" + job.last_error + "</div>");
+      parts.push("<div class=\"job-err\">" + escHtml(job.last_error) + "</div>");
     }
     if (Array.isArray(job.paths) && job.paths.length) {
       const done = job.done || 0;
@@ -901,7 +910,7 @@
         let cls = "job-path-pending";
         if (job.status === "done" || idx < done) cls = "job-path-done";
         else if (nc === cur && job.status === "running") cls = "job-path-active";
-        parts.push('<li class="' + cls + '">' + nc + "</li>");
+        parts.push('<li class="' + cls + '">' + escHtml(nc) + "</li>");
       });
       if (job.paths.length > show.length) {
         parts.push(
@@ -999,7 +1008,7 @@
       setStatus(preview.error || "Vorschau fehlgeschlagen", true);
       return;
     }
-    const label = folder || "OF";
+    const label = folder || "Root";
     let msg =
       "KI-Tagging für «" +
       label +
@@ -1141,10 +1150,10 @@
     q.innerHTML = "";
     renderBrowsePager(data.total, data.offset, data.limit);
     const scope = recursive
-      ? "Baum unter " + (browseFolder || "OF")
+      ? "Baum unter " + (browseFolder || "Root")
       : browseFolder
         ? browseFolder + "/"
-        : "OF/";
+        : "Root/";
     if (!data.items.length) {
       setStatus(
         "Keine Mediendateien in " +

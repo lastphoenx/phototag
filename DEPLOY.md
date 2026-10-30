@@ -35,8 +35,8 @@ nano phototag.env
 - Liegt nur auf dem Server, **nicht** im GitHub-Repo (`categories.example.txt` ist nur Demo).
 - `post-update.sh` zählt Tag-Zeilen — **keine** Tag-Inhalte aus dem Repo.
 - Optional in **`phototag.env`:** `PHOTOTAG_REQUIRED_TAGS_FILE` (eine Tag-ID pro Zeile; nur Server).
-- Tag-Widersprüche: optional **`PHOTOTAG_SANITIZE_RULES`** (Pfad zu JSON **nur auf dem Server** — kein Beispiel im GitHub-Repo; Homelab-Master privat in `doku/`).
-- **Zensur-/Prompt-Anpassungen:** optional **`PHOTOTAG_TAGGING_CUSTOM`** (JSON **nur auf dem Server** — Master `tempdok/telegram/phototag2/tagging-custom.json`; ohne Datei nur generischer Kurz-Prompt).
+- Tag-Widersprüche: optional **`PHOTOTAG_SANITIZE_RULES`** (Pfad zu JSON **nur auf dem Server** — kein Beispiel im GitHub-Repo).
+- **Zensur-/Prompt-Anpassungen:** optional **`PHOTOTAG_TAGGING_CUSTOM`** (JSON **nur auf dem Server** — ohne Datei nur generischer Kurz-Prompt).
 - **Sanitize in UI:** Browse-**Speichern** und KI-Lauf nutzen dieselbe `sanitize_tags`-Pipeline (ab 0.5.18); bei Flags → **review**, kein push-nc bis bereinigt.
 
 ## 4. Verifizieren
@@ -145,7 +145,7 @@ Hash erzeugen (einmal auf dem CT):
 
 **Sync-Meldung «Keys vorhanden»:** heißt nur, dass Key-Namen (auch als `#`-Kommentar) in `phototag.env` vorkommen — **nicht**, dass Admin-Login gesetzt ist. `./scripts/post-update.sh` prüft User/Passwort/BIND separat.
 
-**2FA (optional, später):** phototag selbst = **User + Passwort + Session-Cookie** (kein TOTP im Repo). Wie andere Homelab-Apps: **Reverse-Proxy** davor (nginx auf zentralem CT, Authelia/SSO/TOTP) → HTTPS + 2FA; phototag bleibt dahinter auf HTTP `:8765` im internen Netz. Snippets nur in **privatem `doku/`**, nicht in GitHub.
+**2FA (optional, später):** phototag selbst = **User + Passwort + Session-Cookie** (kein TOTP im Repo). Optional **Reverse-Proxy** davor (nginx, SSO/TOTP) → HTTPS + 2FA; phototag bleibt dahinter auf HTTP `:8765` im internen Netz.
 
 **Später HTTPS/Domain:** gleicher Proxy (TLS-Termination), Ziel upstream `http://<phototag-CT-IP>:8765` — keine Änderung am Python-Code nötig.
 
@@ -157,7 +157,7 @@ Hash erzeugen (einmal auf dem CT):
 
 ## 5. Nacht-Lauf (optional, noch manuell aktivieren)
 
-**Im Repo:** nur Vorlagen — **auf CT 142 ist kein systemd-Timer automatisch installiert**, bis du `cp` + `enable` ausführst. Prüfen: `systemctl status phototag-night.timer` (wenn „not found“ → noch nicht eingerichtet).
+**Im Repo:** nur Vorlagen — **auf dem Server ist kein systemd-Timer automatisch installiert**, bis du `cp` + `enable` ausführst. Prüfen: `systemctl status phototag-night.timer` (wenn „not found“ → noch nicht eingerichtet).
 
 ### Was `PHOTOTAG_SCAN_ROOT` ist
 
@@ -171,33 +171,33 @@ Test: kleiner lokaler Ordner mit Kopien. Produktion: **rclone mount** (siehe unt
 
 ### rclone-Mount (CT, Nextcloud-WebDAV)
 
-**Remote-Name ≠ Mount-Pfad.** Syntax immer mit **Doppelpunkt**: `nextcloud_OF:` — nicht `REMOTE:OF` und nicht `nextcloud_OF` ohne `:`.
+**Remote-Name ≠ Mount-Pfad.** Syntax immer mit **Doppelpunkt**: `nextcloud_media:` — nicht `REMOTE:Media` und nicht `nextcloud_media` ohne `:`.
 
 Remote-Pfad herausfinden:
 
 ```bash
 rclone listremotes
-rclone lsd nextcloud_OF:
-rclone lsd nextcloud_OF:OF          # falls OF ein Unterordner ist
-rclone ls nextcloud_OF: | head -5   # oder nextcloud_OF:OF
+rclone lsd nextcloud_media:
+rclone lsd nextcloud_media:Media          # falls Media ein Unterordner ist
+rclone ls nextcloud_media: | head -5   # oder nextcloud_media:Media
 ```
 
 In **`phototag.env`** (nur Server):
 
 ```bash
-PHOTOTAG_SCAN_ROOT=/mnt/nextcloud-of
-PHOTOTAG_RCLONE_MOUNT=nextcloud_OF:          # Wurzel des Remotes
-# oder PHOTOTAG_RCLONE_MOUNT=nextcloud_OF:OF  # wenn OF Unterordner ist
-PHOTOTAG_NC_DAV_PREFIX=OF                     # muss zum Mount-Baum passen
+PHOTOTAG_SCAN_ROOT=/mnt/media
+PHOTOTAG_RCLONE_MOUNT=nextcloud_media:          # Wurzel des Remotes
+# oder PHOTOTAG_RCLONE_MOUNT=nextcloud_media:Media  # wenn Media Unterordner ist
+PHOTOTAG_NC_DAV_PREFIX=Media                     # muss zum Mount-Baum passen
 ```
 
 Mount manuell testen:
 
 ```bash
-mkdir -p /mnt/nextcloud-of
+mkdir -p /mnt/media
 ./scripts/ensure-rclone-mount.sh
-mountpoint /mnt/nextcloud-of
-ls /mnt/nextcloud-of | head
+mountpoint /mnt/media
+ls /mnt/media | head
 ```
 
 **systemd (Dauerbetrieb, einmalig):**
@@ -244,7 +244,7 @@ systemctl enable --now phototag-night.timer
 systemctl list-timers | grep phototag
 ```
 
-Timer startet **täglich 00:00**, Service läuft bis **`PHOTOTAG_NIGHT_END_HOUR`** (Default 7). Homelab-Detail: **`doku/phototag/nacht-tagging.md`** (privates Repo).
+Timer startet **täglich 00:00**, Service läuft bis **`PHOTOTAG_NIGHT_END_HOUR`** (Default 7).
 
 ## 6. Release-Notizen
 

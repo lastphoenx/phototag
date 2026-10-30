@@ -890,13 +890,13 @@ def main() -> None:
         "--folder",
         action="append",
         default=[],
-        help="NC/OF-Ordner (Mount-relativ), mehrfach möglich; mit --no-recursive nur direkte Dateien",
+        help="NC-Ordner (Mount-relativ), mehrfach möglich; mit --no-recursive nur direkte Dateien",
     )
     t.add_argument(
         "--nc-path",
         action="append",
         default=[],
-        help="Einzelne Datei (NC-Pfad, z. B. Zum Löschen/Test/a.jpg)",
+        help="Einzelne Datei (NC-Pfad, z. B. Album/Test/a.jpg)",
     )
     t.add_argument(
         "--no-recursive",

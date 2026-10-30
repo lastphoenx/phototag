@@ -73,10 +73,10 @@ def create_app():
         if _logged_in():
             return
         tok = admin_token()
-        if tok and request.headers.get("X-Phototag-Token") == tok:
+        if tok and secrets.compare_digest(request.headers.get("X-Phototag-Token", ""), tok):
             return
         auth = request.headers.get("Authorization", "")
-        if tok and auth.startswith("Bearer ") and auth[7:] == tok:
+        if tok and auth.startswith("Bearer ") and secrets.compare_digest(auth[7:], tok):
             return
         abort(401)
 
@@ -335,7 +335,10 @@ def create_app():
         retag = body.get("retag") in (True, 1, "1", "true")
         recursive = body.get("recursive", True) not in (False, 0, "0", "false")
         kind = body.get("kind")
-        limit = int(body.get("limit") or 0)
+        try:
+            limit = max(0, int(body.get("limit") or 0))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "limit muss Zahl sein"}), 400
         if not folders and not nc_paths:
             return jsonify({"ok": False, "error": "folders oder nc_paths nötig"}), 400
         if not mount_accessible():

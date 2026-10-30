@@ -1,6 +1,6 @@
 """Optional tagging customization from JSON (server-only path, not in public repo).
 
-Schema (version 1): see private master tempdok/telegram/phototag2/tagging-custom.json
+Schema (version 1): JSON with prompt/strip rules, kept on the server only.
 Env: PHOTOTAG_TAGGING_CUSTOM=/path/to/tagging-custom.json
 """
 from __future__ import annotations
@@ -110,7 +110,9 @@ def vision_prompt_anonymization_block(lang: str, allowed: set[str]) -> str:
         intro = intro.replace("{examples}", examples)
 
         chunks = [intro]
-        for key in ("face_censor_rule", "face_visibility", "vulva_censor_hint"):
+        lang_cfg = (custom.get("prompt") or {}).get(lang_key) or {}
+        extra_keys = sorted(k for k in lang_cfg if isinstance(k, str) and k.endswith("_hint")) if isinstance(lang_cfg, dict) else []
+        for key in ("face_censor_rule", "face_visibility", *extra_keys):
             block = _prompt_section(custom, lang_key, key)
             if block:
                 if not block.startswith("-"):

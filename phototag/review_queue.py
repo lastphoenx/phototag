@@ -10,7 +10,7 @@ from phototag.nextcloud_sync import nc_dav_relative_path
 
 
 def nc_display_path(row: sqlite3.Row) -> str:
-    """Path under PHOTOTAG_NC_DAV_PREFIX (e.g. Zum Löschen/Test/IMG_1602.JPG)."""
+    """Path under PHOTOTAG_NC_DAV_PREFIX (e.g. Album/Test/IMG_0002.JPG)."""
     return nc_dav_relative_path(row["root"], row["path"])
 
 
@@ -100,6 +100,9 @@ def approve_image(
             raise ValueError(f"id={image_id} keine Tags in model_raw")
         final_caption = (caption or row["caption"] or cap_from_raw or "")[: caption_max()]
 
+    from phototag.nextcloud_sync import ensure_nc_pushed_table
+
+    ensure_nc_pushed_table(con)
     con.execute("DELETE FROM nc_pushed WHERE image_id=?", (image_id,))
     con.execute("DELETE FROM tags WHERE image_id=?", (image_id,))
     con.executemany("INSERT INTO tags VALUES(?,?)", [(image_id, t) for t in final_tags])

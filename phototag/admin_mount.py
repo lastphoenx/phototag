@@ -283,6 +283,9 @@ def save_mount_tags(
     final_caption = (caption or "")[: caption_max()]
     status = "review" if sanitize_flags else "tagged"
     review_note = sanitize_review_note(sanitize_flags)
+    from phototag.nextcloud_sync import ensure_nc_pushed_table
+
+    ensure_nc_pushed_table(con)
     con.execute("DELETE FROM nc_pushed WHERE image_id=?", (image_id,))
     con.execute("DELETE FROM tags WHERE image_id=?", (image_id,))
     con.executemany("INSERT INTO tags VALUES(?,?)", [(image_id, t) for t in final_tags])

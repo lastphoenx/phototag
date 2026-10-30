@@ -388,9 +388,9 @@ def test_strip_invalid_detail_under_censor(tmp_path: Path, monkeypatch: pytest.M
     rules = {
         "strip_under_censor": [
             {
-                "when": "anus_censored",
-                "drop_tags": ["anus_visible", "genitals_shaved"],
-                "flag": "anus_detail_under_censor",
+                "when": "part_a_censored",
+                "drop_tags": ["detail_b", "detail_a"],
+                "flag": "detail_under_censor_a",
             }
         ]
     }
@@ -399,12 +399,12 @@ def test_strip_invalid_detail_under_censor(tmp_path: Path, monkeypatch: pytest.M
     monkeypatch.setenv("PHOTOTAG_TAGGING_CUSTOM", str(p))
     clear_tagging_custom_cache()
 
-    t = {"anus_censored", "genitals_shaved", "rear_view_naked", "anus_visible"}
+    t = {"part_a_censored", "detail_a", "other_tag", "detail_b"}
     flags = strip_invalid_detail_under_censor(t)
-    assert "genitals_shaved" not in t
-    assert "anus_visible" not in t
-    assert "rear_view_naked" in t
-    assert "anus_detail_under_censor" in flags
+    assert "detail_a" not in t
+    assert "detail_b" not in t
+    assert "other_tag" in t
+    assert "detail_under_censor_a" in flags
 
 
 def test_prepare_stored_tags_sanitize_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -434,7 +434,7 @@ def test_prepare_stored_tags_sanitize_file(tmp_path: Path, monkeypatch: pytest.M
     assert "alpha_beta" in flags
 
 
-def test_strip_genitals_visible_with_breast_censor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_strip_detail_c_with_breast_censor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     import json
 
     from phototag.tagging import strip_invalid_detail_under_censor
@@ -443,10 +443,10 @@ def test_strip_genitals_visible_with_breast_censor(tmp_path: Path, monkeypatch: 
     rules = {
         "strip_under_censor": [
             {
-                "when": "genitals_visible",
-                "when_any_in": ["breasts_censored"],
-                "drop_tags": ["genitals_visible"],
-                "flag": "genitals_visible_with_censor_context",
+                "when": "detail_c",
+                "when_any_in": ["part_b_censored"],
+                "drop_tags": ["detail_c"],
+                "flag": "detail_c_with_censor_context",
             }
         ]
     }
@@ -454,7 +454,7 @@ def test_strip_genitals_visible_with_breast_censor(tmp_path: Path, monkeypatch: 
     p.write_text(json.dumps(rules), encoding="utf-8")
     monkeypatch.setenv("PHOTOTAG_TAGGING_CUSTOM", str(p))
     clear_tagging_custom_cache()
-    t = {"genitals_visible", "breasts_censored", "nude", "face_censored"}
+    t = {"detail_c", "part_b_censored", "other_tag", "face_censored"}
     flags = strip_invalid_detail_under_censor(t)
-    assert "genitals_visible" not in t
-    assert "genitals_visible_with_censor_context" in flags
+    assert "detail_c" not in t
+    assert "detail_c_with_censor_context" in flags

@@ -26,6 +26,12 @@ __all__ = [
 
 
 
+def _too_many_tags_limit() -> int:
+    from phototag.config import max_tags
+
+    return max(25, 2 * max_tags())
+
+
 def nc_path_of_row(row: sqlite3.Row) -> str:
     return nc_dav_relative_path(row["root"], row["path"])
 
@@ -113,6 +119,7 @@ def tag_one_row(
         index_image,
         load_categories,
         model_name,
+        sanitize_review_note,
         sanitize_tags,
     )
 
@@ -129,6 +136,10 @@ def tag_one_row(
         age_status = str(out.get("age_status", "unsure")).lower()
         tags, dropped, caption, model_raw = _apply_model_output(out, allowed)
         tags, sanitize_flags = sanitize_tags(tags, allowed)
+        raw_tags = out.get("tags")
+        if isinstance(raw_tags, list) and len(raw_tags) > _too_many_tags_limit():
+            # Modell zaehlt die Kategorienliste auf statt zu taggen -> nicht still abschneiden
+            sanitize_flags.append("too_many_tags")
     except (
         OSError,
         urllib.error.URLError,

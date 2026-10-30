@@ -23,11 +23,11 @@ def env_db(tmp_path, monkeypatch):
     return db
 
 
-def _seed(con, root="/mnt/of"):
+def _seed(con, root="/mnt/media"):
     rows = [
         (root, "a.jpg", "", "image", "tagged"),
-        (root, "Zum Löschen/x.jpg", "Zum Löschen", "image", "new"),
-        (root, "Zum Löschen/Test/y.jpg", "Zum Löschen/Test", "image", "review"),
+        (root, "Album/x.jpg", "Album", "image", "new"),
+        (root, "Album/Test/y.jpg", "Album/Test", "image", "review"),
     ]
     for r, path, folder, kind, status in rows:
         con.execute(
@@ -40,14 +40,14 @@ def _seed(con, root="/mnt/of"):
 def test_list_child_folders(env_db, tmp_path, monkeypatch):
     mount = tmp_path / "mount"
     (mount / "Photos").mkdir(parents=True)
-    (mount / "Zum Löschen" / "Test").mkdir(parents=True)
+    (mount / "Album" / "Test").mkdir(parents=True)
     monkeypatch.setenv("PHOTOTAG_SCAN_ROOT", str(mount))
     con = connect()
     _seed(con, root=str(mount))
     top = list_child_folders(con, str(mount), "")
     assert "Photos" in top
-    assert "Zum Löschen" in top
-    assert list_child_folders(con, str(mount), "Zum Löschen") == ["Zum Löschen/Test"]
+    assert "Album" in top
+    assert list_child_folders(con, str(mount), "Album") == ["Album/Test"]
     assert normalize_folder(" foo/ ") == "foo"
 
 
@@ -66,12 +66,12 @@ def test_list_browse_filter_review(env_db, tmp_path, monkeypatch):
     monkeypatch.setenv("PHOTOTAG_SCAN_ROOT", str(mount))
     con = connect()
     _seed(con, root=str(mount))
-    rows, total = list_browse_rows(con, "Zum Löschen/Test", "review")
+    rows, total = list_browse_rows(con, "Album/Test", "review")
     assert total == 1
-    assert rows[0]["path"] == "Zum Löschen/Test/y.jpg"
-    rows2, total2 = list_browse_rows(con, "Zum Löschen", "untagged")
+    assert rows[0]["path"] == "Album/Test/y.jpg"
+    rows2, total2 = list_browse_rows(con, "Album", "untagged")
     assert total2 == 1
-    assert rows2[0]["path"] == "Zum Löschen/x.jpg"
+    assert rows2[0]["path"] == "Album/x.jpg"
     root_only, n = list_browse_rows(con, "", "all")
     assert n == 1
     assert root_only[0]["path"] == "a.jpg"
@@ -82,7 +82,7 @@ def test_subfolder_scan_root(env_db, tmp_path, monkeypatch):
     mount.mkdir()
     monkeypatch.setenv("PHOTOTAG_SCAN_ROOT", str(mount))
     con = connect()
-    scan_root_path = mount / "Zum Löschen" / "Test"
+    scan_root_path = mount / "Album" / "Test"
     scan_root_path.mkdir(parents=True)
     con.execute(
         "INSERT INTO images(root,path,folder,kind,status) VALUES(?,?,?,?,?)",
@@ -93,10 +93,10 @@ def test_subfolder_scan_root(env_db, tmp_path, monkeypatch):
         (str(scan_root_path), "b.jpg", "", "image", "review"),
     )
     con.commit()
-    assert nc_parent_dir(str(scan_root_path), "a.mov") == "Zum Löschen/Test"
-    assert list_child_folders(con, str(scan_root_path), "") == ["Zum Löschen"]
+    assert nc_parent_dir(str(scan_root_path), "a.mov") == "Album/Test"
+    assert list_child_folders(con, str(scan_root_path), "") == ["Album"]
     rows, total = list_browse_rows(con, "", "all")
     assert total == 0
-    rows2, total2 = list_browse_rows(con, "Zum Löschen/Test", "all")
+    rows2, total2 = list_browse_rows(con, "Album/Test", "all")
     assert total2 == 2
-    assert is_direct_child_of_folder(str(scan_root_path), "a.mov", "Zum Löschen/Test")
+    assert is_direct_child_of_folder(str(scan_root_path), "a.mov", "Album/Test")

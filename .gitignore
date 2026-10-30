@@ -18,3 +18,10 @@ categories.private.txt
 tagging-custom.json
 **/tagging-custom.json
 state/tagging-custom.json
+
+# Server runtime (never commit)
+state/
+secrets/
+phototag.env
+*.log
+sanitize-rules.json

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Nach update-from-github.sh: Version, phototag.env vs .env.example.
-# Keine Tag-Inhalte aus dem Repo — categories.txt ist privat (Homelab/doku).
+# Keine Tag-Inhalte aus dem Repo — categories.txt ist privat (nur lokal).
 set -euo pipefail
 
 INSTALL_DIR="${PHOTOTAG_INSTALL_DIR:-/opt/phototag}"
@@ -56,7 +56,7 @@ if [[ ! -f "$CAT_FILE" ]]; then
   echo "FEHLT: $CAT_FILE — cp categories.example.txt categories.txt && anpassen" >&2
 else
   n="$(grep -cE '^[[:space:]]*[a-z][a-z0-9_]*[[:space:]]*:' "$CAT_FILE" 2>/dev/null || echo 0)"
-  echo "OK: $CAT_FILE ($n Tag-Zeilen). Taxonomie-Aenderungen: privates Homelab-doku, nicht phototag GitHub."
+  echo "OK: $CAT_FILE ($n Tag-Zeilen). Taxonomie-Aenderungen nur lokal, nicht im GitHub-Repo."
 fi
 
 REQ_LOCAL="${PHOTOTAG_REQUIRED_TAGS_FILE:-}"
