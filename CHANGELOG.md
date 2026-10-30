@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.16
+
+- **KI:** Sensitive Zensur-Prompts und `strip_under_censor` aus **`PHOTOTAG_TAGGING_CUSTOM`** (JSON nur Server/tempdok); öffentlicher Code = Loader + generischer Fallback. Gesichts-Partial-Tags über categories + Custom-Prompt (`face_partial_*`, `face_visible`).
+
 ## 0.5.15
 
 - **KI:** Zusatz-Prompt für absichtliche Anonymisierung (Blur/Mosaik/Balken) vs. Bokeh; granulare `*_censored`-Regionen inkl. Gesäß/After/Hoden/rear; **kein** `genitals_shaved`/Anatomie-Detail unter Zensur (Prompt + `strip_invalid_detail_under_censor` bei Sanitize).

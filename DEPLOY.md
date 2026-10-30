@@ -36,6 +36,7 @@ nano phototag.env
 - `post-update.sh` zählt Tag-Zeilen — **keine** Tag-Inhalte aus dem Repo.
 - Optional in **`phototag.env`:** `PHOTOTAG_REQUIRED_TAGS_FILE` (eine Tag-ID pro Zeile; nur Server).
 - Tag-Widersprüche: optional **`PHOTOTAG_SANITIZE_RULES`** (Pfad zu JSON **nur auf dem Server** — kein Beispiel im GitHub-Repo; Homelab-Master privat in `doku/`).
+- **Zensur-/Prompt-Anpassungen:** optional **`PHOTOTAG_TAGGING_CUSTOM`** (JSON **nur auf dem Server** — Master `tempdok/telegram/phototag2/tagging-custom.json`; ohne Datei nur generischer Kurz-Prompt).
 
 ## 4. Verifizieren
 

@@ -346,29 +346,62 @@ def test_sanitize_rules_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert tags == ["alpha"]
 
 
-def test_vision_prompt_anonymization_block():
-    from phototag.tagging import vision_prompt_anonymization_block
+def test_vision_prompt_anonymization_block(monkeypatch: pytest.MonkeyPatch):
+    from phototag.tagging_custom import clear_tagging_custom_cache, vision_prompt_anonymization_block
 
+    monkeypatch.delenv("PHOTOTAG_TAGGING_CUSTOM", raising=False)
+    clear_tagging_custom_cache()
     assert vision_prompt_anonymization_block("de", {"landscape"}) == ""
-    block = vision_prompt_anonymization_block("de", {"privacy_blur", "face_visible", "face_censored"})
-    assert "Anonymisierung" in block
+    generic = vision_prompt_anonymization_block("de", {"privacy_blur"})
+    assert "Absichtliche Zensur" in generic
+
+
+def test_vision_prompt_from_tagging_custom(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import json
+
+    from phototag.tagging_custom import clear_tagging_custom_cache, vision_prompt_anonymization_block
+
+    custom = {
+        "censor_trigger_tags": ["privacy_blur"],
+        "prompt": {
+            "de": {
+                "intro": ["Test intro {examples}"],
+                "face_censor_rule": "face_censored statt face_visible",
+            }
+        },
+    }
+    p = tmp_path / "tagging-custom.json"
+    p.write_text(json.dumps(custom), encoding="utf-8")
+    monkeypatch.setenv("PHOTOTAG_TAGGING_CUSTOM", str(p))
+    clear_tagging_custom_cache()
+    block = vision_prompt_anonymization_block("de", {"privacy_blur", "face_visible"})
+    assert "Test intro privacy_blur" in block
     assert "face_censored statt face_visible" in block
-    assert "Bokeh" in block
-    gran = vision_prompt_anonymization_block(
-        "de",
-        {"privacy_blur", "nipples_censored", "breasts_censored", "penis_censored", "vulva_censored"},
-    )
-    assert "nipples_censored" in gran
-    assert "penis_censored vs vulva_censored" in gran
 
 
-def test_strip_invalid_detail_under_censor():
+def test_strip_invalid_detail_under_censor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import json
+
     from phototag.tagging import strip_invalid_detail_under_censor
+    from phototag.tagging_custom import clear_tagging_custom_cache
+
+    rules = {
+        "strip_under_censor": [
+            {
+                "when": "anus_censored",
+                "drop_tags": ["anus_visible", "genitals_shaved"],
+                "flag": "anus_detail_under_censor",
+            }
+        ]
+    }
+    p = tmp_path / "rules.json"
+    p.write_text(json.dumps(rules), encoding="utf-8")
+    monkeypatch.setenv("PHOTOTAG_TAGGING_CUSTOM", str(p))
+    clear_tagging_custom_cache()
 
     t = {"anus_censored", "genitals_shaved", "rear_view_naked", "anus_visible"}
     flags = strip_invalid_detail_under_censor(t)
     assert "genitals_shaved" not in t
     assert "anus_visible" not in t
     assert "rear_view_naked" in t
-    assert "grooming_under_censor" in flags
     assert "anus_detail_under_censor" in flags

@@ -13,3 +13,8 @@ categories.txt
 **/categories.txt
 categories.private.txt
 **/categories.private.txt
+
+# Server-only vision prompt / strip rules (PHOTOTAG_TAGGING_CUSTOM)
+tagging-custom.json
+**/tagging-custom.json
+state/tagging-custom.json
