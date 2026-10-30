@@ -67,6 +67,28 @@ Erster Tag-Test: kleines Limit, `-v` optional.
 
 CSS/JS im Python-Paket (kein CDN). **Kein SSH-Tunnel:** CT im LAN, Browser auf **`http://<CT-IP>:8765/`**, Login mit **`PHOTOTAG_ADMIN_USER`** / Passwort (oder Hash) aus **`phototag.env`**.
 
+### Telegram (optional, Browse-UI)
+
+Originaldatei vom Mount an einen Chat senden (Weiterleiten in der Telegram-App). In **`phototag.env`** (chmod 600):
+
+- **`PHOTOTAG_TELEGRAM_BOT_TOKEN`** — Bot von @BotFather
+- **`PHOTOTAG_TELEGRAM_CHAT_ID`** — Ziel: **Saved Messages** = deine numerische User-ID (z. B. via @userinfobot), oder Gruppen-/Kanal-ID für eine Save-Inbox
+
+Einmal **`/start`** an den Bot schicken (Privatchat), sonst liefert die API oft „chat not found“. Danach **`systemctl restart phototag-admin.service`**. Button **→ Telegram** erscheint nur wenn beide Keys gesetzt sind.
+
+**Gruppen-Save-Inbox (empfohlen zum Weiterleiten):**
+
+1. Private Gruppe anlegen (z. B. „phototag outbox“), Bot als Mitglied hinzufügen.
+2. In der Gruppe eine Nachricht schicken (z. B. `ping`) — damit der Bot den Chat kennt.
+3. Chat-ID ermitteln (nur Token in URL, Wert nicht committen):
+   ```bash
+   curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" | head -c 2000
+   ```
+   Unter `result[].message.chat` steht `"id": -100…` für Supergruppen — **negative** Zahl in `PHOTOTAG_TELEGRAM_CHAT_ID`.
+4. Optional Bot-Rechte: reicht Mitglied; „Post messages“ nur nötig wenn der Bot sonst nicht senden darf.
+
+**Saved Messages:** statt Gruppe deine **eigene numerische User-ID** als `PHOTOTAG_TELEGRAM_CHAT_ID` + `/start` im Bot-Privatchat.
+
 **Dauerbetrieb (empfohlen):** systemd + gunicorn — startet nach Reboot, kein Flask-Dev-Warnung.
 
 ```bash

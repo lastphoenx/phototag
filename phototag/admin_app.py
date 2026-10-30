@@ -21,11 +21,13 @@ from phototag.admin_browse import (
     resolve_images_root,
 )
 from phototag.admin_mount import (
+    forward_mount_media_to_telegram,
     list_child_folders_mount_only,
     list_mount_browse_items,
     save_mount_tags,
     thumb_bytes_for_nc,
 )
+from phototag.telegram_forward import telegram_configured
 
 _PKG = Path(__file__).resolve().parent
 _STATIC = _PKG / "static" / "admin"
@@ -121,7 +123,11 @@ def create_app():
     def index():
         from phototag import __version__
 
-        return render_template("index.html", app_version=__version__)
+        return render_template(
+            "index.html",
+            app_version=__version__,
+            telegram_enabled=telegram_configured(),
+        )
 
     @app.get("/api/tags")
     def api_tags():
@@ -239,6 +245,33 @@ def create_app():
             )
         except (FileNotFoundError, ValueError, RuntimeError) as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify(result)
+
+    @app.post("/api/browse/telegram")
+    def api_browse_telegram():
+        _check_api_auth()
+        if not telegram_configured():
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "Telegram nicht konfiguriert (PHOTOTAG_TELEGRAM_BOT_TOKEN + CHAT_ID)",
+                },
+            ), 503
+        body = request.get_json(silent=True) or {}
+        nc_path = (body.get("nc_path") or "").strip().lstrip("/")
+        caption = body.get("caption", "")
+        if not nc_path:
+            return jsonify({"ok": False, "error": "nc_path fehlt"}), 400
+        if not mount_accessible():
+            return jsonify(
+                {"ok": False, "error": "PHOTOTAG_SCAN_ROOT nicht lesbar"},
+            ), 503
+        try:
+            result = forward_mount_media_to_telegram(nc_path, caption=str(caption))
+        except FileNotFoundError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
+        except RuntimeError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 502
         return jsonify(result)
 
     @app.post("/api/tag/one")

@@ -320,6 +320,23 @@ def save_mount_tags(
     }
 
 
+def forward_mount_media_to_telegram(
+    nc_rel: str,
+    *,
+    caption: str = "",
+) -> dict[str, Any]:
+    from phototag.telegram_forward import send_media_to_telegram
+
+    if not mount_accessible():
+        raise RuntimeError("PHOTOTAG_SCAN_ROOT nicht lesbar")
+    physical = physical_file_path(nc_rel)
+    if not physical.is_file():
+        raise FileNotFoundError(f"Datei nicht auf Mount: {nc_rel}")
+    cap = (caption or "").strip() or nc_rel
+    sent = send_media_to_telegram(physical, caption=cap)
+    return {"ok": True, "nc_path": nc_rel, **sent}
+
+
 def thumb_bytes_for_nc(con: sqlite3.Connection, nc_rel: str) -> bytes | None:
     row = find_image_by_nc_rel(con, nc_rel)
     if row and row["thumb"]:

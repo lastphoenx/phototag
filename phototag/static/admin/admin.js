@@ -15,6 +15,7 @@
   /** @type {Map<string, object>} mount cards on current browse page */
   let mountCardByNc = new Map();
   let folderJobActive = false;
+  const telegramEnabled = document.body.dataset.telegramEnabled === "1";
 
   async function withBusyButton(btn, busyLabel, fn) {
     const prev = btn.textContent;
@@ -348,6 +349,31 @@
     actions.append(approveBtn, skipBtn);
   }
 
+  function appendTelegramButton(actions, item, capArea) {
+    if (!telegramEnabled || !item.nc_path) return;
+    const tgBtn = document.createElement("button");
+    tgBtn.type = "button";
+    tgBtn.textContent = "→ Telegram";
+    tgBtn.title = "Originaldatei an den konfigurierten Chat senden (Saved Messages / Save-Inbox)";
+    tgBtn.onclick = async () => {
+      await withBusyButton(tgBtn, "Sende …", async () => {
+        const res = await api("/api/browse/telegram", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            nc_path: item.nc_path,
+            caption: (capArea && capArea.value.trim()) || item.nc_path,
+          }),
+        });
+        setStatus("Telegram: " + item.nc_path + " (msg " + (res.message_id || "?") + ")");
+        flashActionOk(tgBtn.closest(".card"), tgBtn, "Gesendet ✓", "→ Telegram");
+      }).catch((e) => {
+        setStatus(String(e.message || e), true);
+      });
+    };
+    actions.append(tgBtn);
+  }
+
   function updateKiQueueHint() {
     const n = kiPendingNc.size + (kiJobRunning ? kiJobCards.size : 0);
     if (n > 0 && !kiJobRunning) {
@@ -593,6 +619,7 @@
       queueKiTag(item, kiCtx, false);
     };
     actions.append(tagBtn);
+    appendTelegramButton(actions, item, capArea);
 
     mountCardByNc.set(item.nc_path, kiCtx);
 
@@ -653,6 +680,7 @@
     actions.className = "actions";
 
     appendReviewActions(actions, { item, card, badge, getTags, capArea }, { always: true });
+    appendTelegramButton(actions, item, capArea);
 
     body.append(path, meta, capLabel, capArea, tagBlock, actions);
     card.append(img, body);

@@ -42,6 +42,10 @@ PHOTOTAG_NC_CA_FILE=/opt/phototag/secrets/ca.pem
 # PHOTOTAG_NC_TLS_INSECURE=1
 # PHOTOTAG_NC_TAG_LEVEL=public
 
+# --- [optional] Browse → Telegram (nur phototag.env, chmod 600) ---
+# PHOTOTAG_TELEGRAM_BOT_TOKEN=
+# PHOTOTAG_TELEGRAM_CHAT_ID=
+
 # --- [nur Doku] Update-Pin — NICHT in phototag.env ---
 # Einmalig in der Shell: PHOTOTAG_UPDATE_REF=v0.3.7 ./scripts/update-from-github.sh
 

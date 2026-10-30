@@ -120,6 +120,15 @@ def nc_tls_ca_file() -> str:
     return os.getenv("PHOTOTAG_NC_CA_FILE", "").strip()
 
 
+def telegram_bot_token() -> str:
+    return os.getenv("PHOTOTAG_TELEGRAM_BOT_TOKEN", "").strip()
+
+
+def telegram_chat_id() -> str:
+    """Ziel-Chat: Saved Messages (deine numerische user id) oder Gruppe/Kanal-ID."""
+    return os.getenv("PHOTOTAG_TELEGRAM_CHAT_ID", "").strip()
+
+
 def admin_token() -> str:
     """Optional API-Token (Header); Login primär über User/Passwort."""
     return os.getenv("PHOTOTAG_ADMIN_TOKEN", "").strip()

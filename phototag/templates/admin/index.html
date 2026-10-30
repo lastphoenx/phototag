@@ -6,7 +6,7 @@
   <title>phototag Review</title>
   <link rel="stylesheet" href="/static/admin.css?v={{ app_version }}">
 </head>
-<body>
+<body data-telegram-enabled="{{ '1' if telegram_enabled else '0' }}">
   <header class="bar">
     <h1>phototag Review</h1>
     <div class="bar-actions">

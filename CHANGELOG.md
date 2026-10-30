@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.19
+
+- **Browse → Telegram:** optional `PHOTOTAG_TELEGRAM_BOT_TOKEN` + `PHOTOTAG_TELEGRAM_CHAT_ID` — Button sendet Original (Foto/Video) vom Mount an den Ziel-Chat (Saved Messages / Gruppe).
+
 ## 0.5.18
 
 - **Sanitize überall:** Browse-**Speichern** und gleiche Pipeline wie KI (`prepare_stored_tags`); Review-Flags in UI; push-nc nur bei status tagged nach Sanitize.
