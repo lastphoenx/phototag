@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any
+import re
+import threading
+from contextlib import contextmanager
+from typing import Any, Iterator
 
 from phototag.config import (
     FACEBLUR_FILLS,
@@ -52,7 +55,7 @@ def effective_env_snapshot() -> dict[str, Any]:
         "margin": faceblur_margin(),
         "strength": faceblur_strength(),
         "mode": faceblur_mode(),
-        "summary": faceblur_settings_summary(),
+        "summary": re.sub(r"\s*score=\S+", "", faceblur_settings_summary()),
         "warnings": faceblur_settings_warnings(),
     }
 
@@ -153,6 +156,31 @@ def apply_blur_options_overlay(options: dict[str, Any] | None) -> str:
     os.environ["PHOTOTAG_FACEBLUR_STRENGTH"] = str(opts.get("strength", faceblur_strength()))
     os.environ["PHOTOTAG_FACEBLUR_MODE"] = str(opts.get("mode", faceblur_mode()))
     return "ui"
+
+
+_OVERLAY_KEYS = (
+    "PHOTOTAG_FACEBLUR_REGION",
+    "PHOTOTAG_FACEBLUR_FILL",
+    "PHOTOTAG_FACEBLUR_MARGIN",
+    "PHOTOTAG_FACEBLUR_STRENGTH",
+    "PHOTOTAG_FACEBLUR_MODE",
+)
+_overlay_lock = threading.Lock()
+
+
+@contextmanager
+def temporary_blur_overlay(options: dict[str, Any] | None) -> Iterator[str]:
+    """UI tuning for one call in the admin process; env is restored afterward."""
+    with _overlay_lock:
+        saved = {k: os.environ.get(k) for k in _OVERLAY_KEYS}
+        try:
+            yield apply_blur_options_overlay(options)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
 
 def blur_info_prefix(source: str) -> str:

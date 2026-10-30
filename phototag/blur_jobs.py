@@ -292,12 +292,13 @@ def blur_preview_for_nc(
 ) -> tuple[bytes, dict[str, Any]]:
     """JPEG preview bytes + metadata (no mount write)."""
     from phototag.faceblur import blur_preview_jpeg
+    from phototag.blur_options import temporary_blur_overlay
 
     load_phototag_env(override=True)
-    source = apply_blur_options_overlay(options)
     src = validate_source(nc_rel)
-    jpeg, res = blur_preview_jpeg(src, detector=detector or FaceDetector())
-    append_source_to_notes(res.notes, source)
+    with temporary_blur_overlay(options) as source:
+        jpeg, res = blur_preview_jpeg(src, detector=detector or FaceDetector())
+        append_source_to_notes(res.notes, source)
     return jpeg, {
         "faces": res.faces,
         "kind": res.kind,

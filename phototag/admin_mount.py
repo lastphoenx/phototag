@@ -392,10 +392,24 @@ def forward_mount_media_to_telegram(
     return {"ok": True, "nc_path": nc_rel, **sent, **meta}
 
 
+def _stored_thumb_for_nc(con: sqlite3.Connection, nc_rel: str) -> bytes | None:
+    """The stored preview of one file: indexed lookup on ``path``, no full-table index, no other BLOBs."""
+    parts = nc_rel.replace("\\", "/").lstrip("/").split("/")
+    suffixes = ["/".join(parts[i:]) for i in range(len(parts))]
+    if not suffixes:
+        return None
+    marks = ",".join("?" * len(suffixes))
+    want = nc_rel.replace("\\", "/").lstrip("/")
+    for r in con.execute(f"SELECT root, path, thumb FROM images WHERE path IN ({marks})", suffixes):
+        if nc_dav_relative_path(r["root"], r["path"]) == want and r["thumb"]:
+            return r["thumb"]
+    return None
+
+
 def thumb_bytes_for_nc(con: sqlite3.Connection, nc_rel: str) -> bytes | None:
-    row = find_image_by_nc_rel(con, nc_rel)
-    if row and row["thumb"]:
-        return row["thumb"]
+    blob = _stored_thumb_for_nc(con, nc_rel)
+    if blob:
+        return blob
     physical = physical_file_path(nc_rel)
     if not physical.is_file():
         return None

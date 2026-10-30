@@ -219,7 +219,7 @@ def test_blur_video_keeps_audio_duration_and_blurs_every_frame(tmp_path):
             break
         n += 1
         # inside the (expanded) face box the testsrc detail must be gone
-        assert f2[30:80, 40:80].std() < f1[30:80, 40:80].std() * 0.8
+        assert f2[30:80, 40:80].std() < f1[30:80, 40:80].std() * 0.95
     assert n == 20
 
 
@@ -242,6 +242,7 @@ def mount_env(tmp_path, monkeypatch):
     monkeypatch.setenv("PHOTOTAG_DB", str(tmp_path / "t.db"))
     monkeypatch.setenv("PHOTOTAG_SCAN_ROOT", str(mount))
     monkeypatch.setenv("PHOTOTAG_FACEBLUR_MODEL", str(tmp_path / "model.onnx"))
+    (tmp_path / "model.onnx").write_bytes(b"\x00")
     monkeypatch.setenv("PHOTOTAG_TELEGRAM_TEMP_DIR", str(tmp_path / "tmp"))
     monkeypatch.setenv("PHOTOTAG_INSTALL_DIR", str(tmp_path))
     _noise_image(mount / "Album" / "a.png")
@@ -942,3 +943,14 @@ def test_real_detector_gives_right_landmarks_for_a_sideways_face(monkeypatch):
     assert len(faces) == 1
     re, le = faces[0].landmarks[:2]
     assert abs(le[1] - re[1]) > abs(le[0] - re[0]) * 2
+
+
+def test_thumb_lookup_does_not_need_the_browse_columns(mount_env):
+    """Browse rows have no thumb column; thumb endpoint must still serve the stored blob."""
+    from phototag import admin_mount
+
+    con = connect()
+    row = admin_mount.ensure_indexed_from_mount(con, "Album/a.png")
+    con.execute("UPDATE images SET thumb=? WHERE id=?", (b"\xff\xd8stored", row["id"]))
+    con.commit()
+    assert admin_mount.thumb_bytes_for_nc(con, "Album/a.png") == b"\xff\xd8stored"

@@ -2,6 +2,11 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.7.3
+
+- **Thumbs ohne Browse-Index:** `/api/browse/thumb` lädt nur das eine `thumb`-BLOB per Pfad-Suffix-Query, nicht mehr über den leichten Browse-Index (dort fehlt `thumb` seit 0.7.2).
+- **Vorschau:** UI-Blur-Einstellungen werden mit `temporary_blur_overlay` nur für einen Request gesetzt — «Env verwenden» bleibt danach unverändert. Defaults-`summary` ohne `score=` (nur Server).
+
 ## 0.7.2
 
 - **Admin Browse schneller:** Listen-Queries laden keine `thumb`-BLOBs mehr (jeder Ordnerwechsel zog vorher alle Vorschaubilder aus SQLite). DB-Filter (Review/Tagged/Blur) paginieren per SQL statt alles in den RAM zu laden. Tag-Katalog wird im Browser nur einmal geholt; Unterordner-Liste parallel zum Browse-Request.

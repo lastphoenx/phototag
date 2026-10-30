@@ -1,8 +1,6 @@
 """Blur UI options and API defaults."""
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from phototag.blur_options import (
@@ -10,8 +8,10 @@ from phototag.blur_options import (
     blur_defaults_payload,
     normalize_blur_options,
     options_for_storage,
+    temporary_blur_overlay,
     validate_blur_options_body,
 )
+from phototag.config import faceblur_region
 
 
 def test_defaults_lists_presets_and_parts():
@@ -20,7 +20,7 @@ def test_defaults_lists_presets_and_parts():
     assert ids[0] == "env"
     assert "eyebar" in ids and "custom" in ids
     assert "eyebar" in payload["parts"]
-    assert "score" not in str(payload)
+    assert " score=" not in payload["env"]["summary"]
 
 
 def test_env_preset_stores_nothing():
@@ -43,24 +43,20 @@ def test_custom_requires_parts(monkeypatch):
 
 
 def test_overlay_sets_env(monkeypatch):
+    for key in ("REGION", "FILL", "MARGIN", "STRENGTH", "MODE"):
+        monkeypatch.setenv(f"PHOTOTAG_FACEBLUR_{key}", "x")
     monkeypatch.delenv("PHOTOTAG_FACEBLUR_REGION", raising=False)
     src = apply_blur_options_overlay({"preset": "eyes"})
     assert src == "ui"
     assert "eyes" in __import__("os").environ["PHOTOTAG_FACEBLUR_REGION"]
 
 
-def test_blur_defaults_api(client, monkeypatch):
-    monkeypatch.setenv("PHOTOTAG_FACEBLUR_MODEL", "/nonexistent/model.onnx")
-    from phototag.config import faceblur_enabled
-
-    if not faceblur_enabled():
-        pytest.skip("model path")
+def test_blur_defaults_api(client, mount_env):
     r = client.get("/api/blur/defaults")
     assert r.status_code == 200 and r.json["ok"] and r.json["presets"]
 
 
 def test_blur_job_accepts_options(client, mount_env, monkeypatch):
-    from phototag import blur_jobs
     from phototag.cli import connect
 
     monkeypatch.setenv("PHOTOTAG_FACEBLUR_MODEL", "")
@@ -74,3 +70,14 @@ def test_blur_job_accepts_options(client, mount_env, monkeypatch):
     if r.status_code == 200:
         row = connect().execute("SELECT options FROM blur_jobs WHERE id=?", (r.json["job"]["id"],)).fetchone()
         assert row["options"] and "eyebar" in row["options"]
+
+
+def test_preview_overlay_is_undone(monkeypatch):
+    import os
+
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_REGION", "face")
+    monkeypatch.delenv("PHOTOTAG_FACEBLUR_FILL", raising=False)
+    with temporary_blur_overlay({"preset": "eyes"}) as src:
+        assert src == "ui" and faceblur_region() == "eyes"
+    assert faceblur_region() == "face" and "PHOTOTAG_FACEBLUR_FILL" not in os.environ
+    assert blur_defaults_payload()["env"]["region"] == "face"
