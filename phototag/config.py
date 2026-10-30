@@ -373,6 +373,62 @@ def faceblur_part_wh(part: str) -> tuple[float, float]:
     )
 
 
+def faceblur_track_min_score() -> float:
+    """Video: a track needs at least this MEAN score (with >= 2 hits) or it is dropped as a false positive."""
+    return _env_float("PHOTOTAG_FACEBLUR_TRACK_MIN_SCORE", 0.55, 0.2, 0.95)
+
+
+def faceblur_track_sure_score() -> float:
+    """Video: a track with a single detection is kept only when that detection is this sure."""
+    return _env_float("PHOTOTAG_FACEBLUR_TRACK_SURE_SCORE", 0.90, 0.3, 0.99)
+
+
+def faceblur_corroborate() -> bool:
+    """Video: a real face is also found (at a lower score) when the picture is turned; a body pattern or a
+    hand is not. A track found in ONE orientation only is dropped when it is not very sure (score < 0.9)."""
+    return _env_bool("PHOTOTAG_FACEBLUR_CORROBORATE", True)
+
+
+def faceblur_track_trust_score() -> float:
+    """Video: above this score a track needs no second orientation to be believed."""
+    return _env_float("PHOTOTAG_FACEBLUR_TRACK_TRUST_SCORE", 0.85, 0.5, 0.99)
+
+
+def faceblur_max_faces() -> int:
+    """Video: keep only the N best tracks (0 = no limit). 1 is a quick cure for single-person scenes."""
+    return int(_env_float("PHOTOTAG_FACEBLUR_MAX_FACES", 0, 0, 20))
+
+
+def faceblur_gap_sec() -> float:
+    """Video: a face that vanishes for less than this is assumed to be still there (interpolated)."""
+    return _env_float("PHOTOTAG_FACEBLUR_GAP_SEC", 1.0, 0.0, 10.0)
+
+
+def faceblur_hold_sec() -> float:
+    """Video: keep blurring this long before the first and after the last detection of a track."""
+    return _env_float("PHOTOTAG_FACEBLUR_HOLD_SEC", 0.3, 0.0, 5.0)
+
+
+def faceblur_video_max_side() -> int:
+    """Video output is scaled down to this long side (0 = keep the original size)."""
+    return int(_env_float("PHOTOTAG_FACEBLUR_VIDEO_MAX_SIDE", 1920, 0, 8000))
+
+
+def faceblur_video_preset() -> str:
+    raw = os.getenv("PHOTOTAG_FACEBLUR_VIDEO_PRESET", "veryfast").split("#", 1)[0].strip().lower()
+    ok = ("ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow")
+    return raw if raw in ok else "veryfast"
+
+
+def faceblur_stage_local() -> bool:
+    """Copy a video from the mount to local disk once, process it there, copy the result back once."""
+    return _env_bool("PHOTOTAG_FACEBLUR_STAGE", True)
+
+
+def faceblur_debug_dir() -> str:
+    return os.getenv("PHOTOTAG_FACEBLUR_DEBUG_DIR", "").strip()
+
+
 def faceblur_rotate() -> bool:
     """Detect in 4 orientations (0/90/180/270). YuNet sideways hits need an upright pass for landmarks."""
     return _env_bool("PHOTOTAG_FACEBLUR_ROTATE", True)
@@ -424,7 +480,7 @@ def faceblur_max_detect_side() -> int:
 
 
 def faceblur_video_stride() -> int:
-    return int(_env_float("PHOTOTAG_FACEBLUR_VIDEO_STRIDE", 2, 1, 10))
+    return int(_env_float("PHOTOTAG_FACEBLUR_VIDEO_STRIDE", 3, 1, 15))
 
 
 def faceblur_video_crf() -> int:
@@ -498,6 +554,12 @@ def faceblur_settings_warnings() -> list[str]:
         ("PHOTOTAG_FACEBLUR_BAR_UP", "bar_up", 0.1, 2.0),
         ("PHOTOTAG_FACEBLUR_BAR_DOWN", "bar_down", 0.1, 2.0),
         ("PHOTOTAG_FACEBLUR_BAR_SIDE", "bar_side", 0.5, 2.0),
+        ("PHOTOTAG_FACEBLUR_TRACK_MIN_SCORE", "track_min_score", 0.2, 0.95),
+        ("PHOTOTAG_FACEBLUR_TRACK_SURE_SCORE", "track_sure_score", 0.3, 0.99),
+        ("PHOTOTAG_FACEBLUR_GAP_SEC", "gap_sec", 0.0, 10.0),
+        ("PHOTOTAG_FACEBLUR_HOLD_SEC", "hold_sec", 0.0, 5.0),
+        ("PHOTOTAG_FACEBLUR_MAX_FACES", "max_faces", 0.0, 20.0),
+        ("PHOTOTAG_FACEBLUR_VIDEO_MAX_SIDE", "video_max_side", 0.0, 8000.0),
     )
     for key, label, lo, hi in checks:
         raw = os.getenv(key, "").strip()
@@ -557,6 +619,8 @@ def faceblur_settings_summary() -> str:
         base += " scale[" + " ".join(scales) + "]"
     if not faceblur_rotate():
         base += " rotate=off"
+    if faceblur_max_faces():
+        base += f" max_faces={faceblur_max_faces()}"
     if faceblur_fill() != "none":
         base += f" fill={faceblur_fill()}" + (f"(gap={faceblur_fill_gap():g})" if faceblur_fill() == "bridge" else "")
     if "eyebar" in faceblur_regions():

@@ -435,24 +435,36 @@
   }
 
   /** Human check of a blur copy: approve (blurred_ok) or delete the generated file. */
-  function appendBlurReviewActions(actions, item, badge) {
+  function appendBlurReviewActions(actions, item, badge, note) {
     if (!item.is_blur_copy || !item.id) return;
     const ok = document.createElement("button");
     ok.className = "ok";
     ok.type = "button";
     ok.textContent = "Blur OK";
     ok.title = "Blur geprüft — Status blurred_ok (kein automatisches KI-Tagging)";
+    const say = (text, isErr) => {
+      // the status line is at the top of the page and often out of sight: also tell it ON the card
+      if (note) {
+        note.textContent = text;
+        note.classList.toggle("blur-warn", !!isErr);
+      }
+      setStatus(text, isErr);
+    };
     ok.onclick = async () => {
       ok.disabled = true;
+      ok.textContent = "Speichere …";
       try {
         await api("/api/blur/" + item.id + "/approve", { method: "POST" });
         item.status = "blurred_ok";
         badge.textContent = "blurred_ok";
         badge.className = "status-badge blurred_ok";
-        setStatus("Blur freigegeben: " + item.nc_path);
+        ok.textContent = "Freigegeben ✓";
+        ok.title = "Status blurred_ok. Es wird nichts automatisch getaggt oder gesendet.";
+        say("Blur freigegeben (blurred_ok). Nichts wird automatisch getaggt oder gesendet — KI taggen oder → Telegram bei Bedarf selbst drücken.", false);
       } catch (e) {
-        setStatus(String(e.message || e), true);
         ok.disabled = false;
+        ok.textContent = "Blur OK";
+        say("Blur OK fehlgeschlagen: " + String(e.message || e), true);
       }
     };
     const del = document.createElement("button");
@@ -468,11 +480,38 @@
         setStatus("Blur-Kopie gelöscht: " + item.nc_path);
         await reload();
       } catch (e) {
-        setStatus(String(e.message || e), true);
         del.disabled = false;
+        say("Verwerfen fehlgeschlagen: " + String(e.message || e), true);
       }
     };
     actions.append(ok, del);
+  }
+
+  /** After a page reload the running blur job is gone from the screen; pick it up again. */
+  async function resumeBlurJob() {
+    if (!faceblurEnabled) return;
+    let job;
+    try {
+      job = (await api("/api/blur/jobs/active")).job;
+    } catch (e) {
+      return;
+    }
+    if (!job) return;
+    while (job && (job.status === "pending" || job.status === "running")) {
+      setStatus("Face-Blur läuft: " + job.nc_path + " — " + Math.round((job.progress || 0) * 100) + " %");
+      await new Promise((r) => setTimeout(r, 2000));
+      try {
+        job = (await api("/api/blur/jobs/" + encodeURIComponent(job.id))).job;
+      } catch (e) {
+        return;
+      }
+    }
+    if (job && job.status === "done") {
+      setStatus("Face-Blur fertig: " + ((job.result || {}).nc_path || job.nc_path) + " — bitte prüfen (blurred_review)");
+      reload().catch(() => {});
+    } else if (job) {
+      setStatus("Face-Blur (" + job.status + "): " + (job.error || ""), true);
+    }
   }
 
   function appendTelegramButton(actions, item, capArea) {
@@ -789,7 +828,7 @@
         "Blur-Kopie: " + item.blur_copies.map((c) => c.nc_path + " [" + c.status + "]").join(", ");
     }
     appendFaceBlurButton(actions, item, blurNote);
-    appendBlurReviewActions(actions, item, badge);
+    appendBlurReviewActions(actions, item, badge, blurNote);
 
     mountCardByNc.set(item.nc_path, kiCtx);
 
@@ -1254,7 +1293,11 @@
     await loadSubfolders();
     mountCardByNc.clear();
     const filter = document.getElementById("browseFilter").value;
-    const recursive = document.getElementById("browseRecursive").checked;
+    const recEl = document.getElementById("browseRecursive");
+    if (filter === "blurred") {
+      recEl.checked = true;
+    }
+    const recursive = filter === "blurred" || recEl.checked;
     const data = await api(
       "/api/browse?folder=" +
         encodeURIComponent(browseFolder) +
@@ -1327,6 +1370,9 @@
   document.getElementById("viewMode").onchange = reload;
   document.getElementById("browseFilter").onchange = () => {
     browseOffset = 0;
+    if (document.getElementById("browseFilter").value === "blurred") {
+      document.getElementById("browseRecursive").checked = true;
+    }
     if (isBrowseMode()) loadBrowse().catch((e) => setStatus(e.message, true));
   };
   document.getElementById("browseRecursive").onchange = () => {
@@ -1339,4 +1385,5 @@
 
   syncBrowseChrome();
   reload();
+  resumeBlurJob();
 })();

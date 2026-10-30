@@ -74,6 +74,22 @@ def test_tagged_filter_recursive_under_folder(mount_env):
     assert rec_total == 1
 
 
+def test_blurred_filter_always_includes_subfolders(mount_env):
+    con = connect()
+    root = str(Path(mount_env).resolve())
+    sub = mount_env / "Album" / "Test" / "sub"
+    sub.mkdir()
+    (sub / "x.ai-blurred.jpg").write_bytes(b"blur")
+    con.execute(
+        "INSERT INTO images(root,path,folder,kind,status,derived_from,blur_faces) VALUES(?,?,?,?,?,?,?)",
+        (root, "Album/Test/sub/x.ai-blurred.jpg", "Album/Test/sub", "image", "blurred_review", 1, 1),
+    )
+    con.commit()
+    items, total = list_mount_browse_items(con, "Album/Test", "blurred", set(), recursive=False)
+    assert total == 1
+    assert items[0]["nc_path"] == "Album/Test/sub/x.ai-blurred.jpg"
+
+
 def test_tagged_filter_uses_db_not_mount_walk(mount_env):
     con = connect()
     root = str(Path(mount_env).resolve())

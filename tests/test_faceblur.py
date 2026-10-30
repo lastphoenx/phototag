@@ -26,6 +26,9 @@ class FakeDetector:
     def detect(self, bgr, *, max_side=None):
         return list(self.boxes)
 
+    def detect_passes(self, bgr, angles=(0,), *, max_side=None):
+        return {k: (list(self.boxes) if k == 0 else []) for k in angles}
+
 
 def _noise_image(path: Path, size=(160, 120)) -> None:
     rng = np.random.default_rng(1)

@@ -2,6 +2,21 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.7.0
+
+- **Video-Blur neu aufgebaut.** Vorher entschied jedes Frame allein; Körpermuster (Brustwarzen und Nabel) und Hände galten als "Gesicht", dasselbe Gesicht tauchte in mehreren Drehungen als Geister-Treffer an falscher Stelle auf, und die Grösse sprang von Frame zu Frame. Jetzt:
+  1. **Analyse auf einem kleinen Bild** (max. 1280 px), alle `PHOTOTAG_FACEBLUR_VIDEO_STRIDE` (3) Frames, immer in allen 4 Drehungen.
+  2. **Verfolgung über die Zeit:** Treffer werden zu Spuren verbunden. Pro Spur gilt die Drehung mit dem besten Treffer; dasselbe Gesicht in mehreren Drehungen wird zu **einem** Gesicht (keine Geister).
+  3. **Unsichere Spuren fliegen raus:** nur in einer Drehung gefunden und Mittel < `TRACK_TRUST_SCORE` (0.85); Mittel < `TRACK_MIN_SCORE` (0.55); ein einzelner Treffer unter `TRACK_SURE_SCORE` (0.90). `PHOTOTAG_FACEBLUR_CORROBORATE=0` schaltet die Drehungsprüfung ab, `PHOTOTAG_FACEBLUR_MAX_FACES=1` behält nur die beste Spur.
+  4. **Glättung und Interpolation:** Positionen und Landmarken werden geglättet und zwischen den Treffern interpoliert; Lücken bis `GAP_SEC` (1.0 s) werden überbrückt, vor dem ersten und nach dem letzten Treffer wird `HOLD_SEC` (0.3 s) weitergeblurrt.
+  5. **Ein Render-Durchlauf** über das Vollbild, auf `PHOTOTAG_FACEBLUR_VIDEO_MAX_SIDE` (1920) verkleinert, x264 `PHOTOTAG_FACEBLUR_VIDEO_PRESET` (veryfast).
+- **Schneller:** Das Video wird einmal lokal bereitgestellt (`PHOTOTAG_FACEBLUR_STAGE=1`), danach alles lokal; nur die fertige Datei geht einmal zurück auf den Mount. Prüfsumme und Vorschaubild werden aus der lokalen Datei berechnet. Frames werden ohne Kopie in einen wiederverwendeten Puffer gelesen. Gemessen auf 1080p mit 4 Kernen: 354 ms pro Frame vorher, 55 bis 81 ms jetzt.
+- **Ehrlichere Karte:** Die Notiz nennt Frames mit Blur in Prozent, verfolgte und verworfene Gesichter und warnt, wenn in mehr als 10 % der Frames kein Gesicht gefunden wurde.
+- **Eye-Abstand-Untergrenze:** die Teile schrumpfen bei Profil und gesenktem Kopf nicht mehr auf Splitter (Skala mindestens 0.38 x Boxbreite).
+- **`phototag faceblur-debug <nc_pfad>`:** nur analysieren, schreibt ein Prüfbild (`state/faceblur-debug-<name>.png`) mit behaltenen (grün) und verworfenen (rot) Treffern und listet Spuren mit Grund.
+- **WebUI:** *Blur OK* und Fehler zeigen jetzt eine Meldung direkt auf der Karte; ein laufender Blur-Job wird nach einem Neuladen der Seite wieder aufgenommen (`GET /api/blur/jobs/active`).
+- **Browse Filter *Blur-Kopien*:** Zeigt Kopien **immer im Baum unter dem gewählten Ordner** (inkl. Unterordner), nicht nur direkte Kinder — auch wenn «In Unterordnern» aus war.
+
 ## 0.6.6
 
 - **Vorschaubilder immer aktuell:** `/api/browse/thumb` und `/api/images/<id>/thumb` senden ETag + `no-cache` statt `max-age=86400`. Gleicher Dateiname nach *Blur verwerfen* + neuem Blur zeigte sonst 24 h das alte Bild (Job hatte trotzdem neue Einstellungen). Browse-Karten nutzen `thumb_v` (SHA1-Prefix) in der Thumb-URL.

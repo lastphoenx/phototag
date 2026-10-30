@@ -23,8 +23,15 @@ from phototag.admin_mount import (
     nc_rel_from_dir_file,
     physical_file_path,
 )
-from phototag.config import faceblur_keep_empty, faceblur_suffix, read_phototag_env, load_phototag_env
+from phototag.config import (
+    faceblur_keep_empty,
+    faceblur_stage_local,
+    faceblur_suffix,
+    load_phototag_env,
+    read_phototag_env,
+)
 from phototag.faceblur import (
+    VIDEO_EXTS,
     BLUR_OK,
     BLUR_REVIEW,
     BLUR_STATUSES,
@@ -34,6 +41,7 @@ from phototag.faceblur import (
     blur_file,
     blurred_filename,
     is_blurred_name,
+    stage_local,
     sweep_stale_blur_temps,
     temp_output_path,
     unique_destination,
@@ -157,12 +165,14 @@ def register_blurred_file(
     source_name: str,
     faces: int,
     info: str = "",
+    local: Path | None = None,
 ) -> int:
     """Insert (or reset) the row of a freshly written blur copy with status ``blurred_review``."""
     from phototag.cli import IMAGE_EXTS, VIDEO_EXTS, encode_image, encode_video, sha1_of
     from phototag.config import scan_root
 
     physical = physical_file_path(dest_nc_rel)
+    readable = local if local is not None and local.is_file() else physical  # local copy: no second read over WebDAV
     root = str(Path(scan_root()).resolve())
     rel = dest_nc_rel.replace("\\", "/").lstrip("/")
     folder = Path(rel).parent.as_posix()
@@ -172,16 +182,16 @@ def register_blurred_file(
     thumb = None
     try:
         if kind == "video":
-            thumb = encode_video(physical)["thumb"]
+            thumb = encode_video(readable)["thumb"]
         elif physical.suffix.lower() in IMAGE_EXTS:
-            thumb = encode_image(physical)["thumb"]
+            thumb = encode_image(readable)["thumb"]
     except (OSError, ValueError):
         thumb = None
     caption = f"AI-Blur: {faces} Gesicht(er) in {source_name} verdeckt (Original unverändert)"
     note = f"faceblur:faces={faces}" + (f"; {info}" if info else "")
     note = note[:600]
     existing = con.execute("SELECT id FROM images WHERE root=? AND path=?", (root, rel)).fetchone()
-    values = (st.st_size, st.st_mtime, sha1_of(physical), folder, kind, thumb, BLUR_REVIEW, caption, note, source_id, faces)
+    values = (st.st_size, st.st_mtime, sha1_of(readable), folder, kind, thumb, BLUR_REVIEW, caption, note, source_id, faces)
     if existing:
         con.execute(
             "UPDATE images SET size=?,mtime=?,sha1=?,folder=?,kind=?,thumb=?,status=?,caption=?,error=?,"
@@ -214,9 +224,15 @@ def blur_one_file(
     out_name = blurred_filename(src.name)
     sweep_stale_blur_temps()
     tmp = temp_output_path(Path(out_name).suffix)
+    staged: Path | None = None
+    parent_logical = Path(nc_rel).parent.as_posix()
     try:
+        work_src = src
+        if src.suffix.lower() in VIDEO_EXTS and faceblur_stage_local():
+            work_src, was_staged = stage_local(src)
+            staged = work_src if was_staged else None
         res = blur_file(
-            src, tmp,
+            work_src, tmp,
             detector=detector or FaceDetector(),
             progress=progress,
             allow_empty=faceblur_keep_empty(),
@@ -226,14 +242,15 @@ def blur_one_file(
         if dest.stat().st_size != tmp.stat().st_size:
             dest.unlink(missing_ok=True)
             raise FaceBlurError("Kopie auf den Mount unvollständig (Grösse weicht ab)")
+        dest_nc = nc_rel_from_dir_file("" if parent_logical == "." else parent_logical, dest.name)
+        new_id = register_blurred_file(
+            con, dest_nc, source_id=source_row["id"], source_name=src.name, faces=res.faces,
+            info="; ".join(res.notes), local=tmp,
+        )
     finally:
         tmp.unlink(missing_ok=True)
-    parent_logical = Path(nc_rel).parent.as_posix()
-    dest_nc = nc_rel_from_dir_file("" if parent_logical == "." else parent_logical, dest.name)
-    new_id = register_blurred_file(
-        con, dest_nc, source_id=source_row["id"], source_name=src.name, faces=res.faces,
-        info="; ".join(res.notes),
-    )
+        if staged is not None:
+            staged.unlink(missing_ok=True)
     return {
         "ok": True,
         "id": new_id,

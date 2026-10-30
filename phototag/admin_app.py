@@ -190,6 +190,8 @@ def create_app():
         limit = request.args.get("limit", 80, type=int)
         offset = request.args.get("offset", 0, type=int)
         recursive = request.args.get("recursive", "0") in ("1", "true", "yes")
+        if filter_key == "blurred":
+            recursive = True
         allowed = {t for t, _ in load_categories()}
         if not mount_accessible():
             return jsonify({"ok": False, "error": "PHOTOTAG_SCAN_ROOT nicht lesbar (Mount?)"}), 503
@@ -416,6 +418,17 @@ def create_app():
             return jsonify({"ok": False, "error": str(exc)}), 400
         spawn_blur_job_subprocess(job_id)
         return jsonify({"ok": True, "job": get_blur_job(con, job_id)})
+
+    @app.get("/api/blur/jobs/active")
+    def api_blur_job_active():
+        """The job that is running right now (so the UI can pick it up again after a page reload)."""
+        _check_api_auth()
+        from phototag.blur_jobs import active_job, get_blur_job
+        from phototag.cli import connect
+
+        con = connect()
+        row = active_job(con)
+        return jsonify({"ok": True, "job": get_blur_job(con, row["id"]) if row else None})
 
     @app.get("/api/blur/jobs/<job_id>")
     def api_blur_job_status(job_id: str):

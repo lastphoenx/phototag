@@ -211,6 +211,8 @@ def list_mount_browse_items(
 ) -> tuple[list[dict[str, Any]], int]:
     filter_key = filter_key if filter_key in BROWSE_FILTERS else "all"
     logical_folder = normalize_folder(logical_folder)
+    if filter_key == "blurred":
+        recursive = True  # blur copies live in the same tree as originals — always include subfolders
     nc_index = build_nc_rel_index(con)
     items: list[dict[str, Any]] = []
     from phototag.blur_jobs import blur_copies_by_source

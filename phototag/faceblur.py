@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import subprocess
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -37,12 +37,9 @@ from phototag.config import (
     faceblur_settings_summary,
     faceblur_strength,
     faceblur_suffix,
-    faceblur_video_crf,
-    faceblur_video_stride,
-    faceblur_video_timeout_sec,
 )
 
-ROTATED_MIN_SCORE = 0.6
+ROTATED_MIN_SCORE = 0.7
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi"}
@@ -71,6 +68,7 @@ class FaceBox:
     score: float = 1.0
     # YuNet: right eye, left eye, nose, right mouth corner, left mouth corner
     landmarks: tuple[tuple[float, float], ...] | None = None
+    angle: int = 0  # detection pass that produced it (0/90/180/270): the face is upright in that view
 
 
 @dataclass
@@ -181,20 +179,33 @@ class FaceDetector:
             out.append(FaceBox(x / scale, y / scale, bw / scale, bh / scale, score, landmarks=lm))
         return out
 
-    def detect(self, bgr, *, max_side: int | None = None) -> list[FaceBox]:
-        """Faces in the coordinates of ``bgr``. With rotation on, sideways/upside-down heads use upright landmarks."""
-        found = self._raw_detect(bgr, max_side)
-        if faceblur_rotate():
-            cv2 = self._cv2
-            h, w = bgr.shape[:2]
-            for code, k in (
-                (cv2.ROTATE_90_CLOCKWISE, 90),
-                (cv2.ROTATE_180, 180),
-                (cv2.ROTATE_90_COUNTERCLOCKWISE, 270),
-            ):
-                rotated = cv2.rotate(bgr, code)
+    def detect_passes(self, bgr, angles=(0, 90, 180, 270), *, max_side: int | None = None) -> dict[int, list[FaceBox]]:
+        """One list per requested orientation, in the coordinates of ``bgr`` (not merged).
+        A face lying on its side or upside down is seen upright in one of the passes, so its landmarks
+        are right there; the other passes give canonical (wrong) landmarks at a lower score."""
+        cv2 = self._cv2
+        h, w = bgr.shape[:2]
+        codes = {90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180, 270: cv2.ROTATE_90_COUNTERCLOCKWISE}
+        out: dict[int, list[FaceBox]] = {}
+        for k in angles:
+            if k == 0:
+                faces = self._raw_detect(bgr, max_side)
+                for f in faces:
+                    f.angle = 0
+                out[0] = faces
+            else:
+                # stricter in the extra passes: a real sideways face scores high once seen upright,
+                # while helmets, knees and body patterns only show up at low scores
                 strict = max(faceblur_score(), ROTATED_MIN_SCORE)
-                found.extend(_unrotate_face(f, k, w, h) for f in self._raw_detect(rotated, max_side, strict))
+                out[k] = [_unrotate_face(f, k, w, h) for f in self._raw_detect(cv2.rotate(bgr, codes[k]), max_side, strict)]
+        return out
+
+    def detect(self, bgr, *, max_side: int | None = None) -> list[FaceBox]:
+        """Faces in the coordinates of ``bgr`` (all orientations merged when rotation passes are on)."""
+        angles = (0, 90, 180, 270) if faceblur_rotate() else (0,)
+        found: list[FaceBox] = []
+        for faces in self.detect_passes(bgr, angles, max_side=max_side).values():
+            found.extend(faces)
         return _merge_faces(found)
 
 
@@ -210,13 +221,11 @@ def _unrotate_point(x: float, y: float, k: int, w: int, h: int) -> tuple[float, 
 
 
 def _unrotate_face(f: FaceBox, k: int, w: int, h: int) -> FaceBox:
-    corners = [
-        _unrotate_point(px, py, k, w, h)
-        for px, py in ((f.x, f.y), (f.x + f.w, f.y), (f.x + f.w, f.y + f.h), (f.x, f.y + f.h))
-    ]
+    corners = [_unrotate_point(px, py, k, w, h) for px, py in
+               ((f.x, f.y), (f.x + f.w, f.y), (f.x + f.w, f.y + f.h), (f.x, f.y + f.h))]
     xs, ys = [c[0] for c in corners], [c[1] for c in corners]
     lm = tuple(_unrotate_point(px, py, k, w, h) for px, py in f.landmarks) if f.landmarks else None
-    return FaceBox(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys), f.score, landmarks=lm)
+    return FaceBox(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys), f.score, landmarks=lm, angle=k)
 
 
 def _iou(a: FaceBox, b: FaceBox) -> float:
@@ -227,15 +236,24 @@ def _iou(a: FaceBox, b: FaceBox) -> float:
     return inter / union if union > 0 else 0.0
 
 
+def same_face(a: FaceBox, b: FaceBox) -> bool:
+    """Two detections of ONE face (typically from different orientations): boxes overlap, one contains
+    the other's centre, or the centres are close compared with the face size."""
+    if _iou(a, b) > 0.2:
+        return True
+    ax, ay, bx, by = a.x + a.w / 2, a.y + a.h / 2, b.x + b.w / 2, b.y + b.h / 2
+    if a.x <= bx <= a.x + a.w and a.y <= by <= a.y + a.h:
+        return True
+    if b.x <= ax <= b.x + b.w and b.y <= ay <= b.y + b.h:
+        return True
+    return ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5 < 0.5 * max(a.w, a.h, b.w, b.h)
+
+
 def _merge_faces(faces: list[FaceBox]) -> list[FaceBox]:
-    """Same face in several orientations -> keep the best-scoring detection."""
+    """Same face seen in several orientations -> keep the best-scoring one (its landmarks are the right ones)."""
     kept: list[FaceBox] = []
     for f in sorted(faces, key=lambda x: -x.score):
-        cx, cy = f.x + f.w / 2, f.y + f.h / 2
-        if any(
-            _iou(f, k) > 0.25 or (k.x <= cx <= k.x + k.w and k.y <= cy <= k.y + k.h)
-            for k in kept
-        ):
+        if any(same_face(f, k) for k in kept):
             continue
         kept.append(f)
     return sorted(kept, key=lambda x: (x.y, x.x))
@@ -293,10 +311,14 @@ class _Frame:
             self.rcm = (b.x + b.w * 0.36, b.y + b.h * 0.78)
             self.lcm = (b.x + b.w * 0.64, b.y + b.h * 0.78)
         dx, dy = self.le[0] - self.re[0], self.le[1] - self.re[1]
-        self.d = max(8.0, (dx * dx + dy * dy) ** 0.5)
-        ux, uy = dx / self.d, dy / self.d
+        raw_d = max(8.0, (dx * dx + dy * dy) ** 0.5)
+        ux, uy = dx / raw_d, dy / raw_d
+        # frontal eye distance is ~0.47 of the box width; profile or bowed heads squeeze it, which would
+        # shrink every part to a sliver. Never let the scale fall below 0.38 x box width.
+        self.d = max(raw_d, 0.38 * b.w)
         self.eye_mid = ((self.re[0] + self.le[0]) / 2.0, (self.re[1] + self.le[1]) / 2.0)
         self.mouth_mid = ((self.rcm[0] + self.lcm[0]) / 2.0, (self.rcm[1] + self.lcm[1]) / 2.0)
+        # "down the face" = from the eyes towards the mouth, whatever the head roll (lying, upside down)
         nx, ny = -uy, ux
         if (self.mouth_mid[0] - self.eye_mid[0]) * nx + (self.mouth_mid[1] - self.eye_mid[1]) * ny < 0:
             ux, uy, nx, ny = -ux, -uy, -nx, -ny
@@ -618,7 +640,7 @@ def probe_display(path: Path) -> tuple[int, int, float, float]:
     """(width, height, fps, duration) as the player shows it (rotation applied)."""
     proc = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "v:0", "-of", "json",
-         "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate:stream_tags=rotate:stream_side_data=rotation:format=duration",
+         "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate,duration:stream_tags=rotate:stream_side_data=rotation:format=duration",
          str(path)],
         capture_output=True, text=True, timeout=60, check=False,
     )
@@ -642,32 +664,11 @@ def probe_display(path: Path) -> tuple[int, int, float, float]:
     if abs(rot) % 180 == 90:
         w, h = h, w
     fps = _parse_rate(s.get("avg_frame_rate")) or _parse_rate(s.get("r_frame_rate")) or 25.0
-    duration = float((data.get("format") or {}).get("duration") or 0)
+    # the VIDEO stream's length: phones often record audio a second longer than the picture
+    duration = float(s.get("duration") or 0) or float((data.get("format") or {}).get("duration") or 0)
     if w <= 0 or h <= 0:
         raise FaceBlurError("Videogrösse unbekannt")
     return w, h, min(max(fps, 1.0), 120.0), duration
-
-
-def _iter_frames(path: Path, w: int, h: int, deadline: float) -> Iterator[Any]:
-    _, np = _require_cv2()
-    proc = subprocess.Popen(
-        ["ffmpeg", "-v", "error", "-i", str(path), "-an", "-sn", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"],
-        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-    )
-    size = w * h * 3
-    try:
-        while True:
-            if time.time() > deadline:
-                raise FaceBlurError("Zeitlimit beim Video erreicht (PHOTOTAG_FACEBLUR_VIDEO_TIMEOUT)")
-            buf = proc.stdout.read(size) if proc.stdout else b""
-            if len(buf) < size:
-                break
-            yield np.frombuffer(buf, dtype=np.uint8).reshape(h, w, 3).copy()
-    finally:
-        if proc.stdout:
-            proc.stdout.close()
-        proc.kill()
-        proc.wait()
 
 
 def blur_video_file(
@@ -678,112 +679,10 @@ def blur_video_file(
     progress: ProgressFn | None = None,
     allow_empty: bool = False,
 ) -> BlurResult:
-    """Two passes: (1) detect every ``stride`` frames, (2) blur each frame with boxes from the
-    neighbouring detections (±2 strides, so faces are covered before they are first detected
-    and after they are last seen). Audio is re-encoded to AAC, metadata is dropped."""
-    _, np = _require_cv2()
-    det = detector or FaceDetector()
-    w, h, fps, duration = probe_display(src)
-    # small landmark regions (eyes, mouth) must follow the face every frame; boxes can skip
-    stride = faceblur_video_stride() if set(faceblur_regions()) <= BOX_PARTS else 1
-    hold = stride * 2
-    deadline = time.time() + faceblur_video_timeout_sec()
-    est_frames = max(1, int(duration * fps)) if duration else 0
+    """Video: analysis on a small copy, tracking over time, one render pass (see faceblur_video)."""
+    from phototag.faceblur_video import blur_video
 
-    samples: dict[int, list[FaceBox]] = {}
-    total = 0
-    for i, frame in enumerate(_iter_frames(src, w, h, deadline)):
-        total = i + 1
-        if i % stride == 0:
-            found = det.detect(frame, max_side=1280)
-            if found:
-                samples[i] = found
-        if progress and est_frames and i % 30 == 0:
-            progress(min(0.45, 0.45 * i / est_frames))
-    if total == 0:
-        raise FaceBlurError("Keine Videoframes gelesen")
-    if not samples and not allow_empty:
-        raise NoFacesFound("Keine Gesichter erkannt — keine Kopie erzeugt")
-
-    margin = faceblur_margin() + 0.1  # extra room for motion between samples
-    sample_idx = sorted(samples)
-    crf = faceblur_video_crf()
-    enc = subprocess.Popen(
-        ["ffmpeg", "-v", "error", "-y",
-         "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}", "-r", f"{fps:.6f}", "-i", "-",
-         "-i", str(src), "-map", "0:v:0", "-map", "1:a:0?",
-         "-c:v", "libx264", "-preset", "medium", "-crf", str(crf), "-pix_fmt", "yuv420p",
-         "-c:a", "aac", "-b:a", "160k",
-         "-map_metadata", "-1", "-map_chapters", "-1", "-movflags", "+faststart",
-         "-shortest", str(dst)],
-        stdin=subprocess.PIPE, stderr=subprocess.PIPE,
-    )
-    blurred_frames = 0
-    max_faces = max((len(v) for v in samples.values()), default=0)
-    try:
-        import bisect
-
-        for i, frame in enumerate(_iter_frames(src, w, h, deadline)):
-            lo = bisect.bisect_left(sample_idx, i - hold)
-            hi = bisect.bisect_right(sample_idx, i + hold)
-            near: list[FaceBox] = []
-            for k in sample_idx[lo:hi]:
-                near.extend(samples[k])
-            if near:
-                blur_frame(frame, near, margin=margin)
-                blurred_frames += 1
-            assert enc.stdin is not None
-            enc.stdin.write(np.ascontiguousarray(frame).tobytes())
-            if progress and est_frames and i % 30 == 0:
-                progress(min(0.99, 0.45 + 0.55 * i / est_frames))
-        assert enc.stdin is not None
-        enc.stdin.close()
-        err = enc.stderr.read().decode(errors="replace")[:400] if enc.stderr else ""
-        rc = enc.wait(timeout=600)
-    except BrokenPipeError:
-        err = enc.stderr.read().decode(errors="replace")[:400] if enc.stderr else ""
-        enc.kill()
-        raise FaceBlurError(f"ffmpeg Encode abgebrochen: {err}") from None
-    except Exception:
-        enc.kill()
-        enc.wait()
-        dst.unlink(missing_ok=True)
-        raise
-    if rc != 0 or not dst.is_file() or dst.stat().st_size == 0:
-        dst.unlink(missing_ok=True)
-        raise FaceBlurError(f"ffmpeg Encode fehlgeschlagen: {err or rc}")
-    out_w, out_h, _, out_dur = probe_display(dst)
-    if duration and abs(out_dur - duration) > max(2.0, duration * 0.05):
-        dst.unlink(missing_ok=True)
-        raise FaceBlurError(f"Ausgabe-Dauer weicht ab ({out_dur:.1f}s statt {duration:.1f}s)")
-    if progress:
-        progress(1.0)
-    leaks = 0
-    if set(faceblur_regions()) <= BOX_PARTS:
-        import cv2
-
-        cap = cv2.VideoCapture(str(dst))
-        i = 0
-        while True:
-            ok, frame = cap.read()
-            if not ok:
-                break
-            if i % 10 == 0:
-                leaks += len(det.detect(frame, max_side=1280))
-            i += 1
-        cap.release()
-    return BlurResult(
-        faces=max_faces,
-        width=w,
-        height=h,
-        kind="video",
-        frames=total,
-        notes=[
-            faceblur_settings_summary(),
-            f"{blurred_frames}/{total} Frames mit Blur",
-            *quality_notes(0.0, leaks),
-        ],
-    )
+    return blur_video(src, dst, detector=detector, progress=progress, allow_empty=allow_empty)
 
 
 def blur_file(src: Path, dst: Path, **kw: Any) -> BlurResult:
@@ -804,6 +703,29 @@ def temp_output_path(ext: str) -> Path:
     d = telegram_temp_dir()
     d.mkdir(parents=True, exist_ok=True)
     return d / f"phototag-fb-{uuid.uuid4().hex}{ext}"
+
+
+def stage_local(src: Path) -> tuple[Path, bool]:
+    """Copy a (video) file from the slow mount to local disk ONCE. Returns (path, staged).
+    ffprobe, the analysis pass and the render pass would otherwise each read it over WebDAV again.
+    Falls back to the original when the disk is too small."""
+    import shutil
+    import uuid
+
+    from phototag.config import telegram_temp_dir
+
+    d = telegram_temp_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    size = src.stat().st_size
+    if shutil.disk_usage(d).free < size * 3 + 200 * 1024 * 1024:
+        return src, False
+    dst = d / f"phototag-fb-in-{uuid.uuid4().hex}{src.suffix.lower()}"
+    try:
+        shutil.copyfile(src, dst)
+    except OSError:
+        dst.unlink(missing_ok=True)
+        return src, False
+    return dst, True
 
 
 def sweep_stale_blur_temps(max_age_sec: int = 6 * 3600) -> None:

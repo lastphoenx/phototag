@@ -269,6 +269,8 @@ systemctl restart phototag-admin
 - Es läuft immer nur **ein** Blur-Job; Fortschritt im Button. Log: `state/blur-job-<id>.log`.
 - Prüfen im Filter *Blur-Kopien (prüfen)*: **Blur OK** oder **Blur verwerfen**. Gesichter, die der Detektor nicht findet (stark gedreht, verdeckt, sehr klein), bleiben unverändert — immer Stichprobe ansehen, bevor eine Kopie weitergegeben wird.
 - CLI: `phototag faceblur "Ordner/bild.jpg"` (Pfad relativ zu `PHOTOTAG_SCAN_ROOT`).
+- **Video prüfen/einstellen ohne Kopie:** `phototag faceblur-debug "Ordner/video.mov"` analysiert nur und schreibt `state/faceblur-debug-<name>.png` (grün = behalten, rot = verworfen) mit einer Liste der Spuren und dem Grund. Daran siehst du, ob falsche Gesichter (Körper, Hände) erkannt werden und welche Einstellung hilft (`PHOTOTAG_FACEBLUR_MAX_FACES=1`, `TRACK_*`, `CORROBORATE`).
+- **Tempo bei Videos:** Das Video wird einmal nach `PHOTOTAG_TELEGRAM_TEMP_DIR` (Standard `/tmp`) kopiert und dort verarbeitet; dort brauchst du etwa das Dreifache der Videogrösse frei. Die Ausgabe wird auf `PHOTOTAG_FACEBLUR_VIDEO_MAX_SIDE` (1920) verkleinert. Wer 4K behalten will, setzt `..._MAX_SIDE=0` (deutlich langsamer).
 
 **Feintuning** (`phototag.env`, danach `systemctl restart phototag-admin`):
 

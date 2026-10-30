@@ -904,6 +904,29 @@ def cmd_faceblur(args) -> None:
     print(f"\nOK: {res['nc_path']}  faces={res['faces']}  status={res['status']}  id={res['id']}")
 
 
+def cmd_faceblur_debug(args) -> None:
+    """Analysis only (no copy): prints tracks and writes a contact sheet with kept/dropped detections."""
+    from phototag.admin_mount import physical_file_path
+    from phototag.config import faceblur_stage_local, load_phototag_env
+    from phototag.faceblur import FaceBlurError, FaceDetector, stage_local
+    from phototag.faceblur_video import debug_sheet
+
+    load_phototag_env(override=True)
+    try:
+        src = physical_file_path(args.nc_path)
+        if not src.is_file():
+            sys.exit(f"Datei fehlt: {args.nc_path}")
+        work, staged = (stage_local(src) if faceblur_stage_local() else (src, False))
+        out = Path(db_path()).parent / f"faceblur-debug-{src.stem}.png"
+        try:
+            print(debug_sheet(work, FaceDetector(), out))
+        finally:
+            if staged:
+                work.unlink(missing_ok=True)
+    except FaceBlurError as exc:
+        sys.exit(f"faceblur-debug: {exc}")
+
+
 def cmd_version(_args) -> None:
     from phototag import __version__
 
@@ -947,6 +970,9 @@ def main() -> None:
     fbp = sub.add_parser("faceblur", help="Gesichter in einer Datei unkenntlich machen (Kopie *.ai-blurred.*)")
     fbp.add_argument("nc_path", help="Pfad relativ zu PHOTOTAG_SCAN_ROOT")
     fbp.set_defaults(fn=cmd_faceblur)
+    fbd = sub.add_parser("faceblur-debug", help="Face-Blur nur analysieren: Prüfbild mit erkannten/verworfenen Gesichtern")
+    fbd.add_argument("nc_path", help="Video relativ zu PHOTOTAG_SCAN_ROOT")
+    fbd.set_defaults(fn=cmd_faceblur_debug)
     q = sub.add_parser("search"); q.add_argument("query", nargs="?", default="")
     q.add_argument("--any", action="store_true"); q.add_argument("--fuzzy", action="store_true")
     q.add_argument("--tag", action="append"); q.add_argument("--folder", default=""); q.add_argument("--kind", choices=["image", "video"])
