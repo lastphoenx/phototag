@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.7.4
+
+- **Video/Gesenkter Kopf (Patch 23):** Kollabierte Augen-Landmarks → stabile Achse aus Erkennungs-Drehung; `despike`/`gate_unsure`/`settle_axes` glätten springende Boxen; Tracker bestraft Sprünge (`JUMP_WEIGHT`). `PHOTOTAG_FACEBLUR_UNSURE=face` optional: Eyebar wird ganze Gesichts-Box.
+
 ## 0.7.3
 
 - **Thumbs ohne Browse-Index:** `/api/browse/thumb` lädt nur das eine `thumb`-BLOB per Pfad-Suffix-Query, nicht mehr über den leichten Browse-Index (dort fehlt `thumb` seit 0.7.2).

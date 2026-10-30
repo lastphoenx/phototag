@@ -36,6 +36,7 @@ from phototag.config import (
     faceblur_score,
     faceblur_settings_summary,
     faceblur_strength,
+    faceblur_unsure,
     faceblur_suffix,
 )
 
@@ -298,6 +299,11 @@ def _eye_boxes_from_bbox(b: FaceBox, width: int, height: int) -> list[tuple[int,
 Shape = tuple  # (x0, y0, x1, y1) or (x0, y0, x1, y1, polygon)
 
 
+COLLAPSED_EYES = 0.28   # eye distance below this share of the box width = landmarks are not trustworthy
+# eye axis u and "down the face" n in image coordinates for a face found in the image rotated by k degrees
+_AXES = {0: (1.0, 0.0, 0.0, 1.0), 90: (0.0, -1.0, 1.0, 0.0), 180: (-1.0, 0.0, 0.0, -1.0), 270: (0.0, 1.0, -1.0, 0.0)}
+
+
 class _Frame:
     """Head coordinate frame from the five YuNet landmarks (or estimated from the box)."""
 
@@ -322,6 +328,9 @@ class _Frame:
         nx, ny = -uy, ux
         if (self.mouth_mid[0] - self.eye_mid[0]) * nx + (self.mouth_mid[1] - self.eye_mid[1]) * ny < 0:
             ux, uy, nx, ny = -ux, -uy, -nx, -ny
+        self.collapsed = bool(b.landmarks) and raw_d < COLLAPSED_EYES * b.w
+        if self.collapsed:
+            ux, uy, nx, ny = _AXES.get(b.angle, _AXES[0])
         self.u = (ux, uy)
         self.n = (nx, ny)
         mdx, mdy = self.lcm[0] - self.rcm[0], self.lcm[1] - self.rcm[1]
@@ -348,6 +357,8 @@ def eye_bar(b: FaceBox, margin: float, width: int, height: int) -> Shape:
     """One bar from eye to eye, reaching to the ears, covering eyebrows (above) and eye bags (below)."""
     m = max(0.0, float(margin))
     fr = _Frame(b)
+    if fr.collapsed and faceblur_unsure() == "face":
+        return expand_box(b, m, width, height)
     half_len = max(fr.d * 1.1, b.w * 0.5) * faceblur_bar_side() * (1.0 + m)
     return _rot_rect(fr, fr.eye_mid, half_len, fr.d * (faceblur_bar_up() + m), fr.d * (faceblur_bar_down() + m), width, height)
 

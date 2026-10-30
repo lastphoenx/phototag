@@ -70,6 +70,7 @@ PHOTOTAG_NC_CA_FILE=/opt/phototag/secrets/ca.pem
 # PHOTOTAG_FACEBLUR_GAP_SEC=1.0        # Luecken bis zu dieser Dauer ueberbruecken
 # PHOTOTAG_FACEBLUR_HOLD_SEC=0.3       # vor/nach dem ersten/letzten Treffer weiter blurren
 # PHOTOTAG_FACEBLUR_ROTATE=1          # Erkennung auch gedreht (90/180/270 Grad): liegende/kopfstehende Gesichter; 0 = schneller
+# PHOTOTAG_FACEBLUR_UNSURE=bar        # gesenkter Kopf: bar | face (ganze Box)
 # PHOTOTAG_FACEBLUR_FILL=none          # none | bridge (Luecken zwischen Teilen schliessen) | hull (eine Flaeche)
 # PHOTOTAG_FACEBLUR_FILL_GAP=1.5       # bridge: groesste Luecke in Augenabstaenden
 # PHOTOTAG_FACEBLUR_SCALE_NOSE_W=1.0   # zusaetzlich Breite/Hoehe je Teil: _W und _H

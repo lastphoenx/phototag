@@ -43,6 +43,7 @@ from phototag.config import (
     faceblur_video_timeout_sec,
 )
 from phototag.faceblur import (
+    COLLAPSED_EYES,
     BlurResult,
     FaceBlurError,
     FaceBox,
@@ -60,6 +61,8 @@ ProgressFn = Callable[[float], None]
 
 ANALYSIS_SIDE = 1280
 ANGLE_BONUS = 0.02          # tie-break only: the right view beats the wrong ones by just 0.08-0.16, so no stickiness
+JUMP_WEIGHT = 0.12          # continuity: of two similar detections prefer the one that stays where the face was
+SURE_ITEM = 0.70           # a sample at/above this (and with trustworthy eyes) can serve as anchor for its neighbours
 ACTIVE_WITHIN = 6           # samples: a track counts as "live" this long after its last hit (ghost suppression)
 
 
@@ -83,6 +86,13 @@ def _near(a: FaceBox, b: FaceBox) -> bool:
         return True
     (ax, ay), (bx, by) = _centre(a), _centre(b)
     return math.hypot(ax - bx, ay - by) <= 1.1 * max(a.w, a.h, b.w, b.h)
+
+
+def _jump(a: FaceBox, b: FaceBox) -> float:
+    """How far b is from a in face sizes, plus how much its size changed (log ratio)."""
+    (ax, ay), (bx, by) = _centre(a), _centre(b)
+    size = max(a.w, 1.0)
+    return math.hypot(ax - bx, ay - by) / size + abs(math.log(max(b.w, 1.0) / size))
 
 
 def _lerp(a: float, b: float, t: float) -> float:
@@ -173,7 +183,13 @@ class Tracker:
             near = [c for c in cands if _near(tr.last_face, c) and self._fits(tr, c)]
             if not near:
                 continue
-            best = max(near, key=lambda c: c.score + (ANGLE_BONUS if c.angle == tr.angle else 0.0))
+            ref = tr.last_face
+            best = max(
+                near,
+                key=lambda c: c.score
+                + (ANGLE_BONUS if c.angle == tr.angle else 0.0)
+                - JUMP_WEIGHT * _jump(ref, c),
+            )
             tr.items.append((frame_idx, best))
             tr.angle = best.angle
             tr.last_sample = self._n
@@ -241,6 +257,71 @@ def dedupe_tracks(tracks: list[Track]) -> tuple[list[Track], list[tuple[Track, s
 
 # ---------------------------------------------------------------- smoothing, interpolation
 
+def _collapsed(f: FaceBox) -> bool:
+    if not f.landmarks:
+        return False
+    (rx, ry), (lx, ly) = f.landmarks[0], f.landmarks[1]
+    return math.hypot(lx - rx, ly - ry) < COLLAPSED_EYES * f.w
+
+
+def is_sure(f: FaceBox) -> bool:
+    return f.score >= SURE_ITEM and not _collapsed(f)
+
+
+def gate_unsure(items: list[tuple[int, FaceBox]], gap: int) -> list[tuple[int, FaceBox]]:
+    """Drop unsure samples sandwiched between clear neighbours within ``gap`` frames."""
+    if len(items) < 3:
+        return list(items)
+    sure = [is_sure(f) for _, f in items]
+    out: list[tuple[int, FaceBox]] = []
+    for k, (idx, f) in enumerate(items):
+        if sure[k]:
+            out.append((idx, f))
+            continue
+        before = next((j for j in range(k - 1, -1, -1) if sure[j]), None)
+        after = next((j for j in range(k + 1, len(items)) if sure[j]), None)
+        bridged = (
+            before is not None
+            and after is not None
+            and items[after][0] - items[before][0] <= gap
+        )
+        if not bridged:
+            out.append((idx, f))
+    return out
+
+
+def despike(items: list[tuple[int, FaceBox]], window: int = 5) -> list[tuple[int, FaceBox]]:
+    """Upper-median filter on sample size — alternating small/big readings become one stable size."""
+    if window < 3 or len(items) < 3:
+        return list(items)
+    half = window // 2
+    out: list[tuple[int, FaceBox]] = []
+    for k, (idx, f) in enumerate(items):
+        grp = items[max(0, k - half): k + half + 1]
+        mid = sorted(grp, key=lambda it: it[1].w)[min(len(grp) - 1, (len(grp) * 3) // 5)][1]
+        off = max(f.w, mid.w) / max(1.0, min(f.w, mid.w)) > 1.3
+        out.append((idx, mid if off else f))
+    return out
+
+
+def settle_axes(items: list[tuple[int, FaceBox]], window: int = 21,
+                voters: list[tuple[int, FaceBox]] | None = None) -> list[tuple[int, FaceBox]]:
+    """Collapsed-eye samples take the detection angle most neighbours agree on."""
+    half = window // 2
+    out = list(items)
+    for k, (idx, f) in enumerate(items):
+        if not _collapsed(f):
+            continue
+        votes: dict[int, int] = {}
+        pool = [(i, g) for i, g in (voters if voters is not None else items) if abs(i - idx) <= half * 3]
+        for _, g in pool:
+            votes[g.angle] = votes.get(g.angle, 0) + 1
+        best = max(votes, key=lambda a: (votes[a], a == f.angle))
+        if best != f.angle:
+            out[k] = (idx, FaceBox(f.x, f.y, f.w, f.h, f.score, landmarks=f.landmarks, angle=best))
+    return out
+
+
 def smooth_items(items: list[tuple[int, FaceBox]], window: int = 3) -> list[tuple[int, FaceBox]]:
     """Moving average of position, size and landmarks over neighbouring samples (keeps jitter out)."""
     if window <= 1 or len(items) < 3:
@@ -277,7 +358,8 @@ def tracks_to_frames(
             frames.setdefault(i, []).append(scale_face(f, scale) if scale != 1.0 else f)
 
     for tr in tracks:
-        items = smooth_items(sorted(tr.items, key=lambda it: it[0]), smooth)
+        gated = gate_unsure(sorted(tr.items, key=lambda it: it[0]), max(gap, 1))
+        items = smooth_items(settle_axes(despike(gated), voters=gated), smooth)
         segment_start = 0
         for k in range(len(items)):
             last_of_segment = k == len(items) - 1 or items[k + 1][0] - items[k][0] > max(gap, 1)
@@ -293,6 +375,9 @@ def tracks_to_frames(
                 for i in range(ib, min(total_frames, ib + hold + 1)):  # the last one and after it
                     put(i, fb)
                 segment_start = k + 1
+    for i, faces in frames.items():
+        if len(faces) > 1:
+            frames[i] = _merge_faces(faces)
     return frames
 
 

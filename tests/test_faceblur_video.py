@@ -335,3 +335,83 @@ def test_tracker_ignores_weak_oversized_box_near_track():
     kept, _ = tr.finish()
     assert len(kept) == 1
     assert all(f.score >= 0.9 for _, f in kept[0].items)
+
+
+def _fb(x, y, w, score=0.8, angle=0, eye_d=None):
+    from phototag.faceblur import FaceBox
+    e = w * 0.45 if eye_d is None else eye_d
+    cx, cy = x + w / 2, y + w * 0.4
+    lm = ((cx - e / 2, cy), (cx + e / 2, cy), (cx, cy + w * 0.2), (cx - w * 0.15, cy + w * 0.35), (cx + w * 0.15, cy + w * 0.35))
+    return FaceBox(x, y, w, w * 1.2, score, landmarks=lm, angle=angle)
+
+
+def test_collapsed_eyes_use_the_axis_of_the_orientation_not_noise():
+    from phototag.faceblur import _Frame
+    for angle, axis in ((0, (1.0, 0.0)), (270, (0.0, 1.0)), (90, (0.0, -1.0))):
+        fr = _Frame(_fb(100, 100, 120, angle=angle, eye_d=4))
+        assert fr.u == axis
+    fr = _Frame(_fb(100, 100, 120, angle=270, eye_d=54))
+    assert abs(fr.u[1]) < 0.01
+
+
+def test_median_filter_removes_alternating_readings():
+    from phototag.faceblur_video import despike
+    items = [(i * 3, _fb(400, 250, 140) if i % 3 else _fb(380, 230, 70)) for i in range(12)]
+    out = despike(items)
+    assert all(f.w == 140 for _, f in out[1:-1])
+
+
+def test_axis_follows_the_majority_for_collapsed_samples():
+    from phototag.faceblur_video import settle_axes
+    items = [(i * 3, _fb(100, 100, 120, angle=0, eye_d=4)) for i in range(8)]
+    items[4] = (12, _fb(100, 100, 120, angle=270, eye_d=4))
+    assert settle_axes(items)[4][1].angle == 0
+
+
+def test_two_tracks_on_one_face_make_one_box():
+    from phototag.faceblur_video import Track, tracks_to_frames
+    a = Track(1, 0, [(i, _fb(100, 100, 100, 0.9)) for i in range(0, 30, 3)])
+    b = Track(2, 0, [(i, _fb(110, 105, 110, 0.7)) for i in range(0, 30, 3)])
+    frames = tracks_to_frames([a, b], 30, 30.0)
+    assert all(len(v) == 1 for v in frames.values())
+
+
+def test_unsure_sample_between_clear_neighbours_is_rebuilt_by_interpolation():
+    from phototag.faceblur_video import gate_unsure, tracks_to_frames, Track
+    sure_a, sure_b = _fb(100, 100, 120, 0.9), _fb(130, 100, 120, 0.9)
+    odd = _fb(400, 300, 60, 0.55)
+    items = [(0, sure_a), (3, odd), (6, sure_b)]
+    assert [i for i, _ in gate_unsure(items, 30)] == [0, 6]
+    frames = tracks_to_frames([Track(1, 0, items)], 20, 30.0, smooth=1)
+    assert frames[3][0].x == pytest.approx(115)
+
+
+def test_unsure_samples_stay_when_there_is_no_clear_neighbour_close_by():
+    from phototag.faceblur_video import gate_unsure
+    items = [(0, _fb(100, 100, 120, 0.9)), (50, _fb(400, 300, 60, 0.55)), (100, _fb(130, 100, 120, 0.9))]
+    assert len(gate_unsure(items, 30)) == 3
+
+
+def test_eyebar_of_a_bowed_head_keeps_the_bar_unless_face_fallback_is_chosen(monkeypatch):
+    from phototag.faceblur import eye_bar
+    bowed = _fb(100, 100, 120, angle=0, eye_d=4)
+    bar = eye_bar(bowed, 0.15, 720, 480)
+    assert (bar[2] - bar[0]) > 1.5 * (bar[3] - bar[1])
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_UNSURE", "face")
+    face = eye_bar(bowed, 0.15, 720, 480)
+    assert (face[2] - face[0]) >= 120 and (face[3] - face[1]) >= 120
+    healthy = eye_bar(_fb(100, 100, 120, angle=0, eye_d=54), 0.15, 720, 480)
+    assert (healthy[2] - healthy[0]) > 1.5 * (healthy[3] - healthy[1])
+
+
+def test_when_readings_alternate_the_bigger_one_wins():
+    from phototag.faceblur_video import despike
+    items = [(i * 3, _fb(380, 230, 70) if i % 2 else _fb(400, 250, 140)) for i in range(12)]
+    assert all(f.w == 140 for _, f in despike(items)[1:-1])
+
+
+def test_axis_votes_come_from_the_original_readings_not_the_size_filter():
+    from phototag.faceblur_video import settle_axes
+    original = [(i * 3, _fb(100, 100, 120, angle=270 if i % 3 == 0 else 0, eye_d=4)) for i in range(10)]
+    filtered = [(i, _fb(100, 100, 120, angle=270, eye_d=4)) for i, _ in original]
+    assert all(f.angle == 0 for _, f in settle_axes(filtered, voters=original)[2:-2])

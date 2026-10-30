@@ -434,6 +434,12 @@ def faceblur_rotate() -> bool:
     return _env_bool("PHOTOTAG_FACEBLUR_ROTATE", True)
 
 
+def faceblur_unsure() -> str:
+    """When eye landmarks collapsed (bowed head): ``bar`` keeps oriented bar, ``face`` covers whole box."""
+    v = os.getenv("PHOTOTAG_FACEBLUR_UNSURE", "bar").split("#", 1)[0].strip().lower()
+    return v if v in ("bar", "face") else "bar"
+
+
 def faceblur_scale(part: str) -> float:
     """Per-part size factor PHOTOTAG_FACEBLUR_SCALE_<PART> (nose, mouth, ears, chin, forehead)."""
     return _env_float(f"PHOTOTAG_FACEBLUR_SCALE_{part.upper()}", 1.0, 0.3, 3.0)
