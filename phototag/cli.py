@@ -192,6 +192,11 @@ def cmd_scan(args) -> None:
     root = Path(args.root).resolve()
     if not root.is_dir():
         sys.exit(f"Kein Ordner: {root}")
+
+    def scan_log(msg: str) -> None:
+        print(msg, file=sys.stderr, flush=True)
+
+    scan_log(f"scan: start {root}")
     con = connect()
     new = changed = seen = 0
     pending_commit = 0
@@ -204,6 +209,8 @@ def cmd_scan(args) -> None:
                 continue
             kind = "video" if ext in VIDEO_EXTS else "image"
             seen += 1
+            if seen == 1 or seen % 200 == 0:
+                scan_log(f"scan: {seen} Mediendateien … (neu={new}, geändert={changed})")
             rel = p.relative_to(root).as_posix()
             folder = Path(rel).parent.as_posix()
             folder = "" if folder == "." else folder
@@ -233,6 +240,7 @@ def cmd_scan(args) -> None:
                 con.commit()
                 pending_commit = 0
     con.commit()
+    scan_log(f"scan: fertig — {seen} gesehen, {new} neu, {changed} geändert")
     print(f"{seen} Dateien gesehen, {new} neu, {changed} geändert.")
 
 

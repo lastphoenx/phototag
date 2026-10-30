@@ -47,6 +47,7 @@ hour_lt_end() {
 }
 
 cd "$INSTALL_DIR"
+export PYTHONUNBUFFERED=1
 PT="${INSTALL_DIR}/.venv/bin/phototag"
 PY="${INSTALL_DIR}/.venv/bin/python"
 [[ -x "$PY" ]] || { echo "FEHLT: $PY" >&2; exit 1; }

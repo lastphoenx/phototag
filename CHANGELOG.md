@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.12
+
+- **`phototag scan`:** Fortschritt alle 200 Mediendateien auf **stderr** (sichtbar in `journalctl`); Nacht-Skript setzt **`PYTHONUNBUFFERED=1`**.
+
 ## 0.5.11
 
 - **SQLite:** `busy_timeout` + Scan committet alle 150 Dateien (weniger „database is locked“ bei langem Scan).
