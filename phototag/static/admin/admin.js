@@ -381,7 +381,7 @@
       setStatus(
         "Telegram: " +
           nc +
-          " — Upload startet (Videos über rclone können mehrere Minuten dauern, max. 50 MB) …"
+          " — Upload (grosse Videos: Staging + Kompression, ggf. 10+ Min.) …"
       );
       setTelegramOverlay(card, "Telegram Upload …", true);
       tgBtn.classList.add("tg-busy");

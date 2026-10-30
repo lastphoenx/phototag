@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.23
+
+- **Telegram Temp:** Cleanup nach Upload (auch bei Worker-Abbruch: Sweep alter `phototag-tg-*`); Dateiname in Telegram = Original-Stem (`.mp4`).
+
 ## 0.5.22
 
 - **Telegram grosse Videos:** optional `PHOTOTAG_TELEGRAM_COMPRESS=1` — Staging nach `/tmp`, ffmpeg, Send, Temp löschen (Bot-Limit 50 MB).

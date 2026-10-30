@@ -325,7 +325,7 @@ def forward_mount_media_to_telegram(
     *,
     caption: str = "",
 ) -> dict[str, Any]:
-    from phototag.telegram_compress import cleanup_temps, prepare_media_for_telegram
+    from phototag.telegram_compress import cleanup_phototag_temp, cleanup_temps, prepare_media_for_telegram
     from phototag.telegram_forward import send_media_to_telegram
 
     if not mount_accessible():
@@ -335,10 +335,14 @@ def forward_mount_media_to_telegram(
         raise FileNotFoundError(f"Datei nicht auf Mount: {nc_rel}")
     cap = (caption or "").strip() or nc_rel
     send_path, temps, meta = prepare_media_for_telegram(physical)
+    upload_name = Path(nc_rel).name
+    if meta.get("compressed"):
+        upload_name = f"{Path(nc_rel).stem}.mp4"
     try:
-        sent = send_media_to_telegram(send_path, caption=cap)
+        sent = send_media_to_telegram(send_path, caption=cap, upload_name=upload_name)
     finally:
         cleanup_temps(temps)
+        cleanup_phototag_temp(send_path)
     return {"ok": True, "nc_path": nc_rel, **sent, **meta}
 
 

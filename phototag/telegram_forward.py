@@ -20,7 +20,9 @@ def telegram_configured() -> bool:
     return bool(telegram_bot_token() and telegram_chat_id())
 
 
-def _multipart_body(fields: dict[str, str], file_field: str, file_path: Path) -> tuple[bytes, str]:
+def _multipart_body(
+    fields: dict[str, str], file_field: str, file_path: Path, *, upload_name: str | None = None
+) -> tuple[bytes, str]:
     boundary = f"----phototag{uuid.uuid4().hex}"
     chunks: list[bytes] = []
     for name, value in fields.items():
@@ -28,10 +30,11 @@ def _multipart_body(fields: dict[str, str], file_field: str, file_path: Path) ->
             f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n".encode()
         )
     mime = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
+    fname = upload_name or file_path.name
     chunks.append(
         (
             f"--{boundary}\r\n"
-            f'Content-Disposition: form-data; name="{file_field}"; filename="{file_path.name}"\r\n'
+            f'Content-Disposition: form-data; name="{file_field}"; filename="{fname}"\r\n'
             f"Content-Type: {mime}\r\n\r\n"
         ).encode()
     )
@@ -40,7 +43,7 @@ def _multipart_body(fields: dict[str, str], file_field: str, file_path: Path) ->
     return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
 
 
-def send_media_to_telegram(path: Path, *, caption: str = "") -> dict:
+def send_media_to_telegram(path: Path, *, caption: str = "", upload_name: str | None = None) -> dict:
     """sendPhoto (Bild) oder sendDocument (Video/gross) an PHOTOTAG_TELEGRAM_CHAT_ID."""
     token = telegram_bot_token()
     chat_id = telegram_chat_id()
@@ -72,10 +75,11 @@ def send_media_to_telegram(path: Path, *, caption: str = "") -> dict:
     fields = {"chat_id": chat_id}
     if cap:
         fields["caption"] = cap
-    body, content_type = _multipart_body(fields, file_key, path)
+    body, content_type = _multipart_body(fields, file_key, path, upload_name=upload_name)
     url = f"https://api.telegram.org/bot{token}/{method}"
     req = urllib.request.Request(url, data=body, method="POST")
     req.add_header("Content-Type", content_type)
+    payload: dict | None = None
     try:
         with urllib.request.urlopen(req, timeout=telegram_upload_timeout_sec()) as resp:
             payload = json.loads(resp.read().decode())
@@ -84,8 +88,12 @@ def send_media_to_telegram(path: Path, *, caption: str = "") -> dict:
         raise RuntimeError(f"Telegram API HTTP {exc.code}: {detail}") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"Telegram API: {exc.reason}") from exc
-    if not payload.get("ok"):
-        raise RuntimeError(f"Telegram API: {payload.get('description', payload)!s}")
+    finally:
+        from phototag.telegram_compress import cleanup_phototag_temp
+
+        cleanup_phototag_temp(path)
+    if not payload or not payload.get("ok"):
+        raise RuntimeError(f"Telegram API: {(payload or {}).get('description', payload)!s}")
     result = payload.get("result") or {}
     return {
         "message_id": result.get("message_id"),
