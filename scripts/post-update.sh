@@ -104,4 +104,13 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 echo ""
+echo "=== Nacht-Timer (optional) ==="
+if systemctl is-enabled phototag-night.timer >/dev/null 2>&1; then
+  echo "phototag-night.timer: enabled — Self-Test: ${INSTALL_DIR}/scripts/night-tag-loop.sh --self-test"
+  echo "  Catch-up tagsüber: ${INSTALL_DIR}/scripts/run-night-catchup.sh"
+else
+  echo "phototag-night.timer: nicht aktiv (DEPLOY.md §5)."
+fi
+
+echo ""
 echo "=== fertig ==="

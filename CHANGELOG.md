@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.10
+
+- **night-tag-loop:** Klare Meldung + **Exit 1** wenn Stunde ≥ `END_HOUR` (vorher: leerer Erfolg, „Job startet“ ohne Wirkung). **`run-night-catchup.sh`** / `PHOTOTAG_NIGHT_FORCE=1` = eine Scan+Tag-Runde tagsüber. **`--self-test`** prüft DB ohne Mount.
+
 ## 0.5.9
 
 - **night-tag-loop.sh:** Pending-Zählung über **Python/sqlite3-Modul** statt CLI `sqlite3` (fehlte auf CT → Nacht-Lauf endete um 00:00:32 sofort).
