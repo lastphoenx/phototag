@@ -126,6 +126,9 @@ if [[ ! -d .venv ]]; then
 fi
 .venv/bin/pip install -q -U pip
 .venv/bin/pip install -q -e ".[admin]"
+if grep -qE '^[[:space:]]*PHOTOTAG_FACEBLUR_MODEL=.+' "$INSTALL_DIR/phototag.env" 2>/dev/null; then
+  .venv/bin/pip install -q -e ".[admin,faceblur]"
+fi
 
 INSTALLED="$(.venv/bin/python -c 'import importlib.metadata as m; print(m.version("phototag"))')"
 if [[ "$INSTALLED" != "$SRC_VER" ]]; then

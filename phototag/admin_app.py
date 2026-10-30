@@ -27,6 +27,7 @@ from phototag.admin_mount import (
     save_mount_tags,
     thumb_bytes_for_nc,
 )
+from phototag.config import faceblur_enabled
 from phototag.telegram_forward import telegram_configured
 
 _PKG = Path(__file__).resolve().parent
@@ -127,6 +128,7 @@ def create_app():
             "index.html",
             app_version=__version__,
             telegram_enabled=telegram_configured(),
+            faceblur_enabled=faceblur_enabled(),
         )
 
     @app.get("/api/tags")
@@ -372,6 +374,71 @@ def create_app():
         if not job:
             return jsonify({"ok": False, "error": "Job nicht gefunden"}), 404
         return jsonify({"ok": True, "job": job})
+
+    @app.post("/api/blur/jobs")
+    def api_blur_job_create():
+        _check_api_auth()
+        from phototag.blur_jobs import (
+            BlurBusy,
+            create_blur_job,
+            get_blur_job,
+            spawn_blur_job_subprocess,
+        )
+        from phototag.cli import connect
+        from phototag.faceblur import FaceBlurError
+
+        if not faceblur_enabled():
+            return jsonify({"ok": False, "error": "Face-Blur nicht aktiv (PHOTOTAG_FACEBLUR_MODEL)"}), 503
+        body = request.get_json(silent=True) or {}
+        nc_path = (body.get("nc_path") or "").strip().lstrip("/")
+        if not nc_path:
+            return jsonify({"ok": False, "error": "nc_path fehlt"}), 400
+        if not mount_accessible():
+            return jsonify({"ok": False, "error": "PHOTOTAG_SCAN_ROOT nicht lesbar"}), 503
+        con = connect()
+        try:
+            job_id = create_blur_job(con, nc_path)
+        except BlurBusy as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 409
+        except FileNotFoundError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
+        except (FaceBlurError, ValueError) as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        spawn_blur_job_subprocess(job_id)
+        return jsonify({"ok": True, "job": get_blur_job(con, job_id)})
+
+    @app.get("/api/blur/jobs/<job_id>")
+    def api_blur_job_status(job_id: str):
+        _check_api_auth()
+        from phototag.blur_jobs import get_blur_job
+        from phototag.cli import connect
+
+        job = get_blur_job(connect(), job_id)
+        if not job:
+            return jsonify({"ok": False, "error": "Job nicht gefunden"}), 404
+        return jsonify({"ok": True, "job": job})
+
+    @app.post("/api/blur/<int:image_id>/approve")
+    def api_blur_approve(image_id: int):
+        _check_api_auth()
+        from phototag.blur_jobs import approve_blur
+        from phototag.cli import connect
+
+        try:
+            return jsonify(approve_blur(connect(), image_id))
+        except (LookupError, ValueError) as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+    @app.post("/api/blur/<int:image_id>/reject")
+    def api_blur_reject(image_id: int):
+        _check_api_auth()
+        from phototag.blur_jobs import reject_blur
+        from phototag.cli import connect
+
+        try:
+            return jsonify(reject_blur(connect(), image_id))
+        except (LookupError, ValueError, FileNotFoundError, OSError) as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
 
     @app.get("/api/images/<int:image_id>/thumb")
     def api_thumb(image_id: int):

@@ -50,3 +50,15 @@ PHOTOTAG_NC_CA_FILE=/opt/phototag/secrets/ca.pem
 # Einmalig in der Shell: PHOTOTAG_UPDATE_REF=v0.3.7 ./scripts/update-from-github.sh
 
 # CT: ./scripts/sync-phototag-env.sh --catalog
+
+# --- Face-Blur (optional): Gesichter in Bild/Video unkenntlich machen, Kopie *.ai-blurred.* ---
+# Modell laden: ./scripts/download-faceblur-model.sh  (YuNet, MIT) — erst dann ist der Button "Face-Blur" sichtbar
+# PHOTOTAG_FACEBLUR_MODEL=/opt/phototag/models/face_detection_yunet_2023mar.onnx
+# PHOTOTAG_FACEBLUR_SUFFIX=ai-blurred
+# PHOTOTAG_FACEBLUR_SCORE=0.5          # niedriger = mehr Treffer (lieber ein Blur zu viel)
+# PHOTOTAG_FACEBLUR_MARGIN=0.4         # Box-Vergroesserung (Stirn, Haare, Kinn)
+# PHOTOTAG_FACEBLUR_MODE=blur          # blur | pixel (Mosaik, schwerer rueckrechenbar)
+# PHOTOTAG_FACEBLUR_VIDEO_STRIDE=2     # Video: Gesichtserkennung alle N Frames
+# PHOTOTAG_FACEBLUR_VIDEO_CRF=20       # Video: Qualitaet (kleiner = besser/groesser)
+# PHOTOTAG_FACEBLUR_VIDEO_TIMEOUT=7200 # Sekunden pro Video
+# PHOTOTAG_FACEBLUR_KEEP_EMPTY=0       # 1 = auch ohne erkanntes Gesicht eine Kopie schreiben

@@ -10,7 +10,7 @@ from phototag.config import scan_root
 from phototag.nextcloud_sync import nc_dav_relative_path
 from phototag.review_queue import proposed_tags_from_row
 
-BROWSE_FILTERS = frozenset({"all", "review", "tagged", "untagged"})
+BROWSE_FILTERS = frozenset({"all", "review", "tagged", "untagged", "blurred"})
 
 
 def normalize_folder(folder: str) -> str:
@@ -159,6 +159,8 @@ def _filter_clause(filter_key: str) -> tuple[str, list[Any]]:
         return "status='tagged'", []
     if filter_key == "untagged":
         return "status IN ('new','error')", []
+    if filter_key == "blurred":
+        return "status IN ('blurred_review','blurred_ok')", []
     return "1=1", []
 
 

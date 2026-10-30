@@ -2,11 +2,19 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.6.0
+
+- **Face-Blur (neu):** Button **Face-Blur** je Datei (Bild oder Video) im Ordner-Browser. Erzeugt `<name>.ai-blurred.<ext>` im **gleichen Ordner** (Mount → Nextcloud), das Original bleibt unverändert. Neue Zeile in der DB mit Status **`blurred_review`**, Verweis auf das Original (`derived_from`).
+- Prüfung durch den Menschen: **Blur OK** → `blurred_ok`, **Blur verwerfen** → Kopie wird gelöscht. Beide Status werden vom Nacht-Lauf und von Ordner-Jobs **nicht** getaggt; KI-Tagging nur manuell (Karte auswählen → *KI taggen*). Neuer Filter *Blur-Kopien (prüfen)*.
+- Erkennung: YuNet (OpenCV, lokal, CPU), Video in zwei Durchläufen (Erkennung alle `STRIDE` Frames, Blur mit Boxen der Nachbar-Frames), Ton als AAC, **Metadaten (EXIF/GPS/Container) entfernt**. Ohne erkanntes Gesicht wird **keine** Kopie erzeugt.
+- Neu: `scripts/download-faceblur-model.sh`, Extra `faceblur` (opencv-python-headless, numpy), Keys `PHOTOTAG_FACEBLUR_*`, CLI `phototag faceblur <nc_path>`.
+- `scan` setzt `blurred_*`-Zeilen nicht mehr auf `new` zurück.
+
 ## 0.5.24
 
 - **Fix KI-Tagging:** `sanitize_review_note` import; `nc_pushed`-Tabelle vor Speichern/Freigeben; `too_many_tags` → Review statt alphabetischem Abschneiden.
 - **Security:** kein Default-Session-Key; API-Token timing-safe; XSS-Fix Job-Panel (`escHtml`).
-- **Public repo:** neutrale Beispiele/Doku/Tests (Patch 09); `.gitignore` für `state/`, `phototag.env`, `sanitize-rules.json`.
+- **Public repo:** neutrale Beispiele/Doku/Tests; `.gitignore` für `state/`, `phototag.env`, `sanitize-rules.json`.
 
 ## 0.5.23
 

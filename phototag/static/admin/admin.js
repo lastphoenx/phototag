@@ -16,6 +16,7 @@
   let mountCardByNc = new Map();
   let folderJobActive = false;
   const telegramEnabled = document.body.dataset.telegramEnabled === "1";
+  const faceblurEnabled = document.body.dataset.faceblurEnabled === "1";
 
   async function withBusyButton(btn, busyLabel, fn) {
     const prev = btn.textContent;
@@ -368,6 +369,98 @@
     actions.append(approveBtn, skipBtn);
   }
 
+  /** Face-Blur: start job for one file, poll, then reload so the new copy shows up. */
+  function appendFaceBlurButton(actions, item, note) {
+    if (!faceblurEnabled || !item.nc_path || item.is_blur_copy) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "Face-Blur";
+    btn.title =
+      "Gesichter unkenntlich machen. Erzeugt eine neue Datei *.ai-blurred.* im gleichen Ordner (Original bleibt), Status blurred_review.";
+    btn.onclick = async () => {
+      const nc = item.nc_path;
+      btn.disabled = true;
+      btn.classList.add("blur-busy");
+      btn.textContent = "Blur läuft …";
+      try {
+        const started = await api("/api/blur/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nc_path: nc }),
+        });
+        let job = started.job;
+        while (job && (job.status === "pending" || job.status === "running")) {
+          const pct = Math.round((job.progress || 0) * 100);
+          btn.textContent = "Blur " + pct + " %";
+          setStatus("Face-Blur: " + nc + " — " + pct + " %");
+          await new Promise((r) => setTimeout(r, 1500));
+          job = (await api("/api/blur/jobs/" + encodeURIComponent(job.id))).job;
+        }
+        if (job.status === "done") {
+          const r = job.result || {};
+          setStatus(
+            "Face-Blur fertig: " + r.nc_path + " (" + (r.faces || 0) + " Gesicht(er)) — bitte prüfen (blurred_review)"
+          );
+          if (note) note.textContent = "Blur-Kopie: " + r.nc_path;
+          await reload();
+          return;
+        }
+        if (job.status === "no_faces") {
+          setStatus("Face-Blur: keine Gesichter erkannt — keine Kopie erzeugt", true);
+        } else {
+          setStatus("Face-Blur fehlgeschlagen (" + job.status + "): " + (job.error || ""), true);
+        }
+      } catch (e) {
+        setStatus("Face-Blur: " + String(e.message || e), true);
+      }
+      btn.disabled = false;
+      btn.classList.remove("blur-busy");
+      btn.textContent = "Face-Blur";
+    };
+    actions.append(btn);
+  }
+
+  /** Human check of a blur copy: approve (blurred_ok) or delete the generated file. */
+  function appendBlurReviewActions(actions, item, badge) {
+    if (!item.is_blur_copy || !item.id) return;
+    const ok = document.createElement("button");
+    ok.className = "ok";
+    ok.type = "button";
+    ok.textContent = "Blur OK";
+    ok.title = "Blur geprüft — Status blurred_ok (kein automatisches KI-Tagging)";
+    ok.onclick = async () => {
+      ok.disabled = true;
+      try {
+        await api("/api/blur/" + item.id + "/approve", { method: "POST" });
+        item.status = "blurred_ok";
+        badge.textContent = "blurred_ok";
+        badge.className = "status-badge blurred_ok";
+        setStatus("Blur freigegeben: " + item.nc_path);
+      } catch (e) {
+        setStatus(String(e.message || e), true);
+        ok.disabled = false;
+      }
+    };
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "danger";
+    del.textContent = "Blur verwerfen";
+    del.title = "Löscht die erzeugte Blur-Datei (auch in Nextcloud). Das Original bleibt.";
+    del.onclick = async () => {
+      if (!confirm("Blur-Kopie löschen?\n\n" + item.nc_path + "\n\nDas Original bleibt unverändert.")) return;
+      del.disabled = true;
+      try {
+        await api("/api/blur/" + item.id + "/reject", { method: "POST" });
+        setStatus("Blur-Kopie gelöscht: " + item.nc_path);
+        await reload();
+      } catch (e) {
+        setStatus(String(e.message || e), true);
+        del.disabled = false;
+      }
+    };
+    actions.append(ok, del);
+  }
+
   function appendTelegramButton(actions, item, capArea) {
     if (!telegramEnabled || !item.nc_path) return;
     const tgBtn = document.createElement("button");
@@ -547,7 +640,7 @@
     const st = item.status || "unindexed";
     badge.className =
       "status-badge" +
-      (inReview ? " review" : st === "tagged" ? " tagged" : "");
+      (inReview ? " review" : st === "tagged" ? " tagged" : st.startsWith("blurred_") ? " " + st : "");
     badge.textContent = st;
     meta.append(badge);
     if (item.age_status) {
@@ -669,6 +762,16 @@
     };
     actions.append(tagBtn);
     appendTelegramButton(actions, item, capArea);
+    const blurNote = document.createElement("div");
+    blurNote.className = "blur-note";
+    if (item.is_blur_copy) {
+      blurNote.textContent = "AI-Blur-Kopie (" + (item.blur_faces || 0) + " Gesicht(er)) — Original unverändert";
+    } else if (item.blur_copies && item.blur_copies.length) {
+      blurNote.textContent =
+        "Blur-Kopie: " + item.blur_copies.map((c) => c.nc_path + " [" + c.status + "]").join(", ");
+    }
+    appendFaceBlurButton(actions, item, blurNote);
+    appendBlurReviewActions(actions, item, badge);
 
     mountCardByNc.set(item.nc_path, kiCtx);
 
@@ -680,7 +783,7 @@
       capArea,
     });
 
-    body.append(path, meta, capLabel, capArea, tagBlock, actions);
+    body.append(path, meta, blurNote, capLabel, capArea, tagBlock, actions);
     card.append(img, body);
     return card;
   }

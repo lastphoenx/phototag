@@ -6,7 +6,7 @@
   <title>phototag Review</title>
   <link rel="stylesheet" href="/static/admin.css?v={{ app_version }}">
 </head>
-<body data-telegram-enabled="{{ '1' if telegram_enabled else '0' }}">
+<body data-telegram-enabled="{{ '1' if telegram_enabled else '0' }}" data-faceblur-enabled="{{ '1' if faceblur_enabled else '0' }}">
   <header class="bar">
     <h1>phototag Review</h1>
     <div class="bar-actions">
@@ -31,6 +31,7 @@
         <option value="review">In Review</option>
         <option value="tagged">Mit Tags</option>
         <option value="untagged">Ohne Tags</option>
+        <option value="blurred">Blur-Kopien (prüfen)</option>
       </select>
     </label>
     <label id="retagWrap" class="chk hidden"><input type="checkbox" id="tagRetag"> Neu taggen (retag)</label>

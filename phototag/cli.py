@@ -111,6 +111,10 @@ def connect() -> sqlite3.Connection:
     cols = {r[1] for r in con.execute("PRAGMA table_info(images)")}
     if "model_raw" not in cols:
         con.execute("ALTER TABLE images ADD COLUMN model_raw TEXT")
+    if "derived_from" not in cols:  # blur copy -> id of the untouched original
+        con.execute("ALTER TABLE images ADD COLUMN derived_from INTEGER")
+    if "blur_faces" not in cols:
+        con.execute("ALTER TABLE images ADD COLUMN blur_faces INTEGER")
     fts_cols = "path, folder, caption, tags"
     con.execute(
         f"CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5({fts_cols}, "
@@ -243,7 +247,9 @@ def cmd_scan(args) -> None:
                 scan_log(f"scan: hash {hash_ops} … {rel}")
             if row:
                 con.execute(
-                    "UPDATE images SET size=?,mtime=?,sha1=?,folder=?,kind=?,status='new',error=NULL WHERE id=?",
+                    "UPDATE images SET size=?,mtime=?,sha1=?,folder=?,kind=?,"
+                    "status=CASE WHEN status IN ('blurred_review','blurred_ok') THEN status ELSE 'new' END,"
+                    "error=CASE WHEN status IN ('blurred_review','blurred_ok') THEN error ELSE NULL END WHERE id=?",
                     (st.st_size, st.st_mtime, digest, folder, kind, row["id"]),
                 )
                 changed += 1
@@ -872,6 +878,27 @@ def cmd_tag_job_run(args) -> None:
     run_tag_job(con, args.job_id, verbose=bool(getattr(args, "verbose", False)))
 
 
+def cmd_blur_job_run(args) -> None:
+    from phototag.blur_jobs import run_blur_job
+
+    run_blur_job(connect(), args.job_id)
+
+
+def cmd_faceblur(args) -> None:
+    """Blur one file synchronously (CLI/testing). Result is registered like a UI job."""
+    from phototag.blur_jobs import blur_one_file
+    from phototag.faceblur import FaceBlurError, NoFacesFound
+
+    con = connect()
+    try:
+        res = blur_one_file(con, args.nc_path, progress=lambda f: print(f"\r{f:4.0%}", end="", file=sys.stderr))
+    except NoFacesFound as exc:
+        sys.exit(str(exc))
+    except (FaceBlurError, FileNotFoundError) as exc:
+        sys.exit(f"faceblur: {exc}")
+    print(f"\nOK: {res['nc_path']}  faces={res['faces']}  status={res['status']}  id={res['id']}")
+
+
 def cmd_version(_args) -> None:
     from phototag import __version__
 
@@ -909,6 +936,12 @@ def main() -> None:
     tjr.add_argument("job_id")
     tjr.add_argument("-v", "--verbose", action="store_true")
     tjr.set_defaults(fn=cmd_tag_job_run)
+    bjr = sub.add_parser("blur-job-run", help=argparse.SUPPRESS)
+    bjr.add_argument("job_id")
+    bjr.set_defaults(fn=cmd_blur_job_run)
+    fbp = sub.add_parser("faceblur", help="Gesichter in einer Datei unkenntlich machen (Kopie *.ai-blurred.*)")
+    fbp.add_argument("nc_path", help="Pfad relativ zu PHOTOTAG_SCAN_ROOT")
+    fbp.set_defaults(fn=cmd_faceblur)
     q = sub.add_parser("search"); q.add_argument("query", nargs="?", default="")
     q.add_argument("--any", action="store_true"); q.add_argument("--fuzzy", action="store_true")
     q.add_argument("--tag", action="append"); q.add_argument("--folder", default=""); q.add_argument("--kind", choices=["image", "video"])

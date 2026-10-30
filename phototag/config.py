@@ -289,3 +289,61 @@ def categories_path() -> Path:
         )
         _example_warned = True
     return example
+
+
+# --- Face-Blur (phototag.faceblur) ---------------------------------------------
+
+def faceblur_model_path() -> str:
+    """YuNet ONNX file; empty = Face-Blur aus (UI-Button versteckt)."""
+    return os.getenv("PHOTOTAG_FACEBLUR_MODEL", "").strip()
+
+
+def faceblur_enabled() -> bool:
+    return bool(faceblur_model_path())
+
+
+def faceblur_suffix() -> str:
+    raw = os.getenv("PHOTOTAG_FACEBLUR_SUFFIX", "ai-blurred").strip().lower()
+    return "".join(c for c in raw if c.isalnum() or c in "-_") or "ai-blurred"
+
+
+def _env_float(key: str, default: float, lo: float, hi: float) -> float:
+    try:
+        return max(lo, min(hi, float(os.getenv(key, str(default)))))
+    except ValueError:
+        return default
+
+
+def faceblur_score() -> float:
+    """Detector threshold. Low on purpose: a missed face is worse than an extra blur."""
+    return _env_float("PHOTOTAG_FACEBLUR_SCORE", 0.5, 0.2, 0.95)
+
+
+def faceblur_margin() -> float:
+    return _env_float("PHOTOTAG_FACEBLUR_MARGIN", 0.4, 0.0, 1.5)
+
+
+def faceblur_mode() -> str:
+    mode = os.getenv("PHOTOTAG_FACEBLUR_MODE", "blur").strip().lower()
+    return mode if mode in ("blur", "pixel") else "blur"
+
+
+def faceblur_max_detect_side() -> int:
+    return int(_env_float("PHOTOTAG_FACEBLUR_MAX_SIDE", 2560, 640, 8000))
+
+
+def faceblur_video_stride() -> int:
+    return int(_env_float("PHOTOTAG_FACEBLUR_VIDEO_STRIDE", 2, 1, 10))
+
+
+def faceblur_video_crf() -> int:
+    return int(_env_float("PHOTOTAG_FACEBLUR_VIDEO_CRF", 20, 14, 30))
+
+
+def faceblur_video_timeout_sec() -> int:
+    return int(_env_float("PHOTOTAG_FACEBLUR_VIDEO_TIMEOUT", 7200, 60, 86400))
+
+
+def faceblur_keep_empty() -> bool:
+    """1 = auch ohne erkannte Gesichter eine Kopie schreiben."""
+    return _env_bool("PHOTOTAG_FACEBLUR_KEEP_EMPTY", False)

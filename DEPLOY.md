@@ -253,3 +253,19 @@ Pro Version: **`CHANGELOG.md`** — was sich geändert hat und ob du Env/Categor
 ## Was du **nicht** committen sollst
 
 `phototag.env`, `categories.txt`, `state/*.db`, `secrets/` — siehe `.gitignore` und `SECURITY.md`.
+
+## Face-Blur (optional)
+
+```bash
+cd /opt/phototag
+./scripts/download-faceblur-model.sh          # lädt YuNet, prüft SHA-256
+echo 'PHOTOTAG_FACEBLUR_MODEL=/opt/phototag/models/face_detection_yunet_2023mar.onnx' >> phototag.env
+./scripts/update-from-github.sh               # installiert opencv-python-headless + numpy
+systemctl restart phototag-admin
+```
+
+- Button **Face-Blur** erscheint pro Datei erst, wenn `PHOTOTAG_FACEBLUR_MODEL` gesetzt ist.
+- Ergebnis: `<name>.ai-blurred.<ext>` neben dem Original (Videos als `.mp4`), DB-Status `blurred_review`. Der rclone-Mount lädt die Datei nach Nextcloud hoch (`--vfs-cache-mode writes`; bei grossen Videos kann der Upload nach dem Job noch laufen).
+- Es läuft immer nur **ein** Blur-Job; Fortschritt im Button. Log: `state/blur-job-<id>.log`.
+- Prüfen im Filter *Blur-Kopien (prüfen)*: **Blur OK** oder **Blur verwerfen**. Gesichter, die der Detektor nicht findet (stark gedreht, verdeckt, sehr klein), bleiben unverändert — immer Stichprobe ansehen, bevor eine Kopie weitergegeben wird.
+- CLI: `phototag faceblur "Ordner/bild.jpg"` (Pfad relativ zu `PHOTOTAG_SCAN_ROOT`).

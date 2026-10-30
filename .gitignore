@@ -25,3 +25,5 @@ secrets/
 phototag.env
 *.log
 sanitize-rules.json
+models/
+*.onnx

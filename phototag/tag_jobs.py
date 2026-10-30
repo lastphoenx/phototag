@@ -16,6 +16,7 @@ from phototag.admin_mount import (
     ensure_indexed_from_mount,
     find_image_by_nc_rel,
 )
+from phototag.faceblur import BLUR_STATUSES
 from phototag.nextcloud_sync import nc_dav_relative_path
 from phototag.tagging import run_tag_batch, select_tag_candidates, tag_one_row
 
@@ -94,6 +95,8 @@ def resolve_rows_for_spec(con: sqlite3.Connection, spec: dict[str, Any]) -> list
     limit = int(spec.get("limit") or 0)
     nc_paths = list(spec.get("nc_paths") or [])
     folders = list(spec.get("folders") or [])
+    # Blur copies are never tagged by folder/night batches, only when picked explicitly.
+    explicit_paths = bool(nc_paths)
 
     if folders and not nc_paths:
         nc_paths = _collect_nc_paths_from_folders(folders, recursive)
@@ -107,7 +110,8 @@ def resolve_rows_for_spec(con: sqlite3.Connection, spec: dict[str, Any]) -> list
                 row = ensure_indexed_from_mount(con, nc)
             except (FileNotFoundError, RuntimeError, OSError):
                 continue
-        if not retag and row["status"] not in ("new", "error", "review"):
+        allowed_status = ("new", "error", "review", *(BLUR_STATUSES if explicit_paths else ()))
+        if not retag and row["status"] not in allowed_status:
             continue
         rows_by_id[row["id"]] = row
 

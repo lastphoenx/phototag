@@ -91,6 +91,8 @@ def _row_matches_filter(row: sqlite3.Row | None, filter_key: str) -> bool:
         return st == "review"
     if filter_key == "tagged":
         return st == "tagged"
+    if filter_key == "blurred":
+        return st in ("blurred_review", "blurred_ok")
     return True
 
 
@@ -117,6 +119,7 @@ def _mount_entry_from_row(
     nc_rel: str,
     row: sqlite3.Row | None,
     allowed: set[str],
+    blur_map: dict[int, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     try:
         physical = physical_file_path(nc_rel)
@@ -150,6 +153,9 @@ def _mount_entry_from_row(
         "sanitize_flags": flags,
         "in_review": bool(row and row["status"] == "review"),
         "source": "mount",
+        "is_blur_copy": bool(row and row["derived_from"] is not None),
+        "blur_faces": row["blur_faces"] if row else None,
+        "blur_copies": (blur_map or {}).get(row["id"], []) if row else [],
     }
 
 
@@ -205,15 +211,18 @@ def list_mount_browse_items(
     logical_folder = normalize_folder(logical_folder)
     nc_index = build_nc_rel_index(con)
     items: list[dict[str, Any]] = []
+    from phototag.blur_jobs import blur_copies_by_source
 
-    if filter_key in ("tagged", "review"):
+    blur_map = blur_copies_by_source(con)
+
+    if filter_key in ("tagged", "review", "blurred"):
         for nc_rel in _db_nc_paths_in_folder(
             con, logical_folder, filter_key, recursive=recursive
         ):
             row = nc_index.get(nc_rel)
             if not row:
                 continue
-            items.append(_mount_entry_from_row(con, nc_rel, row, allowed))
+            items.append(_mount_entry_from_row(con, nc_rel, row, allowed, blur_map))
     else:
         if recursive:
             from phototag.admin_browse import collect_mount_media_nc_paths
@@ -225,7 +234,7 @@ def list_mount_browse_items(
             row = nc_index.get(nc_rel)
             if not _row_matches_filter(row, filter_key):
                 continue
-            items.append(_mount_entry_from_row(con, nc_rel, row, allowed))
+            items.append(_mount_entry_from_row(con, nc_rel, row, allowed, blur_map))
 
     total = len(items)
     lim = max(1, min(200, int(limit)))
