@@ -1114,9 +1114,13 @@
     return card;
   }
 
+  let tagCatalogLoaded = false;
+
   async function loadCatalog() {
+    if (tagCatalogLoaded && tagCatalog.length) return;
     const data = await api("/api/tags");
     tagCatalog = data.tags || [];
+    tagCatalogLoaded = true;
     let dl = document.getElementById("tagCatalog");
     if (!dl) {
       dl = document.createElement("datalist");
@@ -1506,10 +1510,10 @@
 
   async function loadBrowse() {
     setStatus("Lade Ordner …");
-    await loadCatalog();
-    if (faceblurEnabled) await ensureBlurSettingsBar();
+    const catalogP = loadCatalog();
+    const blurBarP = faceblurEnabled ? ensureBlurSettingsBar() : Promise.resolve();
+    await catalogP;
     renderBreadcrumb();
-    await loadSubfolders();
     mountCardByNc.clear();
     const filter = document.getElementById("browseFilter").value;
     const recEl = document.getElementById("browseRecursive");
@@ -1517,18 +1521,18 @@
       recEl.checked = true;
     }
     const recursive = filter === "blurred" || recEl.checked;
-    const data = await api(
+    const browseUrl =
       "/api/browse?folder=" +
-        encodeURIComponent(browseFolder) +
-        "&filter=" +
-        encodeURIComponent(filter) +
-        "&recursive=" +
-        (recursive ? "1" : "0") +
-        "&offset=" +
-        browseOffset +
-        "&limit=" +
-        BROWSE_PAGE
-    );
+      encodeURIComponent(browseFolder) +
+      "&filter=" +
+      encodeURIComponent(filter) +
+      "&recursive=" +
+      (recursive ? "1" : "0") +
+      "&offset=" +
+      browseOffset +
+      "&limit=" +
+      BROWSE_PAGE;
+    const [data] = await Promise.all([api(browseUrl), loadSubfolders(), blurBarP]);
     const q = document.getElementById("queue");
     q.innerHTML = "";
     renderBrowsePager(data.total, data.offset, data.limit);

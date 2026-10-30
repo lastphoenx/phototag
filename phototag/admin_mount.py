@@ -7,8 +7,6 @@ from typing import Any
 
 from phototag.admin_browse import (
     BROWSE_FILTERS,
-    is_direct_child_of_folder,
-    is_under_browse_folder,
     list_child_folders_fs,
     mount_accessible,
     normalize_folder,
@@ -20,6 +18,29 @@ from phototag.nextcloud_sync import nc_dav_relative_path
 from phototag.review_queue import normalize_chosen_tags, proposed_tags_from_row
 
 MEDIA_EXTS = IMAGE_EXTS | VIDEO_EXTS
+
+# Browse overlay: never load thumb BLOBs when listing (was multi‑MB per request).
+_IMAGES_BROWSE_COLS = (
+    "id, root, path, folder, kind, status, age_status, caption, error, model_raw, "
+    "derived_from, blur_faces, sha1, size, mtime"
+)
+
+
+def _path_filter_sql(logical_folder: str, recursive: bool) -> tuple[str, list[Any]]:
+    """SQLite path prefix for NC-relative ``images.path`` (browse folder scope)."""
+    bf = normalize_folder(logical_folder)
+    if not bf:
+        if recursive:
+            return "", []
+        return " AND instr(path, '/') = 0", []
+    esc = bf.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    prefix_like = esc + "/%"
+    if recursive:
+        return " AND path LIKE ? ESCAPE '\\'", [prefix_like]
+    return (
+        " AND path LIKE ? ESCAPE '\\' AND instr(substr(path, length(?) + 2), '/') = 0",
+        [prefix_like, bf],
+    )
 
 
 def nc_rel_from_dir_file(logical_dir: str, filename: str) -> str:
@@ -38,7 +59,7 @@ def physical_file_path(nc_rel: str) -> Path:
 def build_nc_rel_index(con: sqlite3.Connection) -> dict[str, sqlite3.Row]:
     """One pass over images — O(n) lookup by NC path for browse overlays."""
     idx: dict[str, sqlite3.Row] = {}
-    for row in con.execute("SELECT * FROM images"):
+    for row in con.execute(f"SELECT {_IMAGES_BROWSE_COLS} FROM images"):
         key = nc_dav_relative_path(row["root"], row["path"])
         idx[key] = row
     return idx
@@ -181,22 +202,25 @@ def _db_nc_paths_in_folder(
     filter_key: str,
     *,
     recursive: bool = False,
-) -> list[str]:
-    """Indexed rows in this folder matching status filter — no mount walk."""
+    limit: int = 80,
+    offset: int = 0,
+) -> tuple[list[sqlite3.Row], int]:
+    """Indexed rows in this folder matching status filter — SQL scope + pagination."""
     from phototag.admin_browse import _filter_clause
 
     logical_folder = normalize_folder(logical_folder)
     extra, params = _filter_clause(filter_key)
-    rows = con.execute(f"SELECT * FROM images WHERE ({extra}) ORDER BY path", params).fetchall()
-    out: list[str] = []
-    for row in rows:
-        if recursive:
-            if not is_under_browse_folder(row["root"], row["path"], logical_folder):
-                continue
-        elif not is_direct_child_of_folder(row["root"], row["path"], logical_folder):
-            continue
-        out.append(nc_dav_relative_path(row["root"], row["path"]))
-    return out
+    path_sql, path_params = _path_filter_sql(logical_folder, recursive)
+    where = f"({extra}){path_sql}"
+    all_params = params + path_params
+    total = int(con.execute(f"SELECT COUNT(*) FROM images WHERE {where}", all_params).fetchone()[0])
+    lim = max(1, min(200, int(limit)))
+    off = max(0, int(offset))
+    rows = con.execute(
+        f"SELECT {_IMAGES_BROWSE_COLS} FROM images WHERE {where} ORDER BY path LIMIT ? OFFSET ?",
+        [*all_params, lim, off],
+    ).fetchall()
+    return list(rows), total
 
 
 def list_mount_browse_items(
@@ -213,6 +237,8 @@ def list_mount_browse_items(
     logical_folder = normalize_folder(logical_folder)
     if filter_key == "blurred":
         recursive = True  # blur copies live in the same tree as originals — always include subfolders
+    lim = max(1, min(200, int(limit)))
+    off = max(0, int(offset))
     nc_index = build_nc_rel_index(con)
     items: list[dict[str, Any]] = []
     from phototag.blur_jobs import blur_copies_by_source
@@ -220,13 +246,18 @@ def list_mount_browse_items(
     blur_map = blur_copies_by_source(con)
 
     if filter_key in ("tagged", "review", "blurred"):
-        for nc_rel in _db_nc_paths_in_folder(
-            con, logical_folder, filter_key, recursive=recursive
-        ):
-            row = nc_index.get(nc_rel)
-            if not row:
-                continue
+        rows, total = _db_nc_paths_in_folder(
+            con,
+            logical_folder,
+            filter_key,
+            recursive=recursive,
+            limit=lim,
+            offset=off,
+        )
+        for row in rows:
+            nc_rel = nc_dav_relative_path(row["root"], row["path"])
             items.append(_mount_entry_from_row(con, nc_rel, row, allowed, blur_map))
+        return items, total
     else:
         if recursive:
             from phototag.admin_browse import collect_mount_media_nc_paths
@@ -234,16 +265,15 @@ def list_mount_browse_items(
             nc_list = collect_mount_media_nc_paths([logical_folder], True)
         else:
             nc_list = list_media_files_on_mount(logical_folder)
+        filtered: list[str] = []
         for nc_rel in nc_list:
+            if _row_matches_filter(nc_index.get(nc_rel), filter_key):
+                filtered.append(nc_rel)
+        total = len(filtered)
+        for nc_rel in filtered[off : off + lim]:
             row = nc_index.get(nc_rel)
-            if not _row_matches_filter(row, filter_key):
-                continue
             items.append(_mount_entry_from_row(con, nc_rel, row, allowed, blur_map))
-
-    total = len(items)
-    lim = max(1, min(200, int(limit)))
-    off = max(0, int(offset))
-    return items[off : off + lim], total
+        return items, total
 
 
 def ensure_indexed_from_mount(con: sqlite3.Connection, nc_rel: str) -> sqlite3.Row:

@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.7.2
+
+- **Admin Browse schneller:** Listen-Queries laden keine `thumb`-BLOBs mehr (jeder Ordnerwechsel zog vorher alle Vorschaubilder aus SQLite). DB-Filter (Review/Tagged/Blur) paginieren per SQL statt alles in den RAM zu laden. Tag-Katalog wird im Browser nur einmal geholt; Unterordner-Liste parallel zum Browse-Request.
+
 ## 0.7.1
 
 - **Browse-Leiste Face-Blur:** Presets (Standard *Env verwenden*), Custom mit Teilen/fill/margin/strength/mode; Auswahl in `localStorage`. **`GET /api/blur/defaults`** liefert erlaubte Teile und Presets. **`POST /api/blur/preview`** zeigt das Ergebnis in der Karte ohne Mount-Datei; **`Face-Blur`** schreibt die Kopie mit denselben Optionen (Env-Overlay nur im Job-Prozess). `blur_info` enthält **`source=ui|env`**. SCORE/VIDEO_STRIDE nicht in der UI.
