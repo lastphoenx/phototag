@@ -239,6 +239,43 @@ button.tag.removable:hover { border-color: var(--warn); }
   box-shadow: 0 0 16px rgba(61, 139, 253, 0.55);
   animation: ki-pulse-blue 1.1s ease-in-out infinite;
 }
+.card.tg-sending {
+  outline: 3px solid #2dd4bf;
+  outline-offset: 2px;
+  box-shadow: 0 0 16px rgba(45, 212, 191, 0.45);
+  animation: tg-pulse 1.2s ease-in-out infinite;
+}
+@keyframes tg-pulse {
+  50% { box-shadow: 0 0 22px rgba(45, 212, 191, 0.7); }
+}
+.tg-state {
+  position: absolute;
+  top: 0.35rem;
+  left: 0.35rem;
+  right: 0.35rem;
+  z-index: 2;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  pointer-events: none;
+  text-align: center;
+  background: rgba(15, 23, 42, 0.88);
+  color: #2dd4bf;
+  border: 1px solid #2dd4bf;
+}
+.tg-state.hidden { display: none; }
+button.tg-busy {
+  background: #0d9488;
+  border-color: #0f766e;
+  color: #fff;
+  cursor: wait;
+}
+button.tg-err {
+  background: var(--bad, #c0392b);
+  border-color: #922b21;
+  color: #fff;
+}
 @keyframes ki-pulse-blue {
   50% { box-shadow: 0 0 22px rgba(61, 139, 253, 0.75); }
 }

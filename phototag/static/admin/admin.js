@@ -242,6 +242,25 @@
       (st === "review" ? " review" : st === "tagged" ? " tagged" : "");
   }
 
+  function setTelegramOverlay(card, text, active) {
+    if (!card) return;
+    card.classList.toggle("tg-sending", !!active);
+    let el = card.querySelector(".tg-state");
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "tg-state hidden";
+      card.appendChild(el);
+    }
+    if (!active || !text) {
+      el.classList.add("hidden");
+      el.textContent = "";
+      if (!active) card.classList.remove("tg-sending");
+      return;
+    }
+    el.textContent = text;
+    el.classList.remove("hidden");
+  }
+
   function setKiOverlay(ctx, text, kind) {
     if (!ctx || !ctx.card) return;
     let el = ctx.card.querySelector(".ki-state");
@@ -354,22 +373,46 @@
     const tgBtn = document.createElement("button");
     tgBtn.type = "button";
     tgBtn.textContent = "→ Telegram";
-    tgBtn.title = "Originaldatei an den konfigurierten Chat senden (Saved Messages / Save-Inbox)";
+    tgBtn.title =
+      "Originaldatei an den konfigurierten Chat senden (Bot-Chat oder Gruppe; Videos bis 50 MB, ggf. Minuten Upload)";
     tgBtn.onclick = async () => {
-      await withBusyButton(tgBtn, "Sende …", async () => {
-        const res = await api("/api/browse/telegram", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            nc_path: item.nc_path,
-            caption: (capArea && capArea.value.trim()) || item.nc_path,
-          }),
+      const card = tgBtn.closest(".card");
+      const nc = item.nc_path;
+      setStatus(
+        "Telegram: " +
+          nc +
+          " — Upload startet (Videos über rclone können mehrere Minuten dauern, max. 50 MB) …"
+      );
+      setTelegramOverlay(card, "Telegram Upload …", true);
+      tgBtn.classList.add("tg-busy");
+      try {
+        await withBusyButton(tgBtn, "Sende …", async () => {
+          const res = await api("/api/browse/telegram", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              nc_path: nc,
+              caption: (capArea && capArea.value.trim()) || nc,
+            }),
+          });
+          setStatus("Telegram OK: " + nc + " (msg " + (res.message_id || "?") + ")");
+          if (card) flashActionOk(card, tgBtn, "Gesendet ✓", "→ Telegram");
         });
-        setStatus("Telegram: " + item.nc_path + " (msg " + (res.message_id || "?") + ")");
-        flashActionOk(tgBtn.closest(".card"), tgBtn, "Gesendet ✓", "→ Telegram");
-      }).catch((e) => {
-        setStatus(String(e.message || e), true);
-      });
+      } catch (e) {
+        const msg = String(e.message || e);
+        setStatus("Telegram fehlgeschlagen: " + msg, true);
+        tgBtn.classList.remove("tg-busy");
+        tgBtn.classList.add("tg-err");
+        tgBtn.textContent = "Fehler — siehe Status";
+        setTimeout(() => {
+          tgBtn.classList.remove("tg-err", "btn-busy");
+          tgBtn.disabled = false;
+          tgBtn.textContent = "→ Telegram";
+        }, 5000);
+      } finally {
+        setTelegramOverlay(card, "", false);
+        tgBtn.classList.remove("tg-busy");
+      }
     };
     actions.append(tgBtn);
   }

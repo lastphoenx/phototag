@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.21
+
+- **WebUI Telegram:** Sichtbarer Upload (Karten-Overlay, Statuszeile, Fehler am Button statt nur kurzes Blinken).
+
 ## 0.5.20
 
 - **Telegram:** Upload-Timeout Default 600 s; klare Fehlermeldung ab 50 MB (Bot-Limit); DEPLOY erklaert Mount-Direct-Read (kein Dauer-Cache in `/opt/phototag`).
