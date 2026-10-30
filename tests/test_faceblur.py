@@ -355,8 +355,28 @@ def test_job_lifecycle_and_single_job_rule(mount_env, monkeypatch):
     blur_jobs.run_blur_job(con, jid)
     job = blur_jobs.get_blur_job(con, jid)
     assert job["status"] == "done" and job["result"]["nc_path"] == "Album/a.ai-blurred.png"
+    assert job["progress"] == 1.0
     # finished -> next job allowed
     assert blur_jobs.create_blur_job(con, "Album/a.png")
+
+
+def test_blur_job_progress_callback_updates_db(mount_env, monkeypatch):
+    from phototag import blur_jobs
+
+    con = connect()
+    jid = blur_jobs.create_blur_job(con, "Album/a.png")
+
+    def fake_blur_one_file(_con, _nc, *, progress=None, **kw):
+        if progress:
+            progress(0.25)
+            progress(0.5)
+        return {"ok": True, "nc_path": "Album/a.ai-blurred.png", "faces": 1, "kind": "image", "notes": []}
+
+    monkeypatch.setattr(blur_jobs, "blur_one_file", fake_blur_one_file)
+    blur_jobs.run_blur_job(con, jid)
+    job = blur_jobs.get_blur_job(con, jid)
+    assert job["status"] == "done"
+    assert job["progress"] == 1.0
 
 
 def test_job_without_faces_and_stale_detection(mount_env, monkeypatch):

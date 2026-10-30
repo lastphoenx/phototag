@@ -569,6 +569,26 @@
     actions.append(approveBtn, skipBtn);
   }
 
+  /** Poll blur job until terminal state; onProgress(pct, job) each tick. */
+  async function pollBlurJobUntilDone(initialJob, onProgress) {
+    let job = initialJob;
+    for (;;) {
+      if (!job || (job.status !== "pending" && job.status !== "running")) {
+        return job;
+      }
+      const pct = Math.round((Number(job.progress) || 0) * 100);
+      onProgress(pct, job);
+      await new Promise((r) => setTimeout(r, 1000));
+      job = (await api("/api/blur/jobs/" + encodeURIComponent(job.id))).job;
+    }
+  }
+
+  function blurProgressLabel(pct) {
+    if (pct <= 0) return "Blur startet …";
+    if (pct >= 100) return "Blur 100 %";
+    return "Blur " + pct + " %";
+  }
+
   /** Face-Blur: preview (no file) or job with options from the browse bar. */
   function appendFaceBlurButton(actions, item, note, card, img) {
     if (!faceblurEnabled || !item.nc_path || item.is_blur_copy) return;
@@ -615,7 +635,7 @@
       btn.disabled = true;
       previewBtn.disabled = true;
       btn.classList.add("blur-busy");
-      btn.textContent = "Blur läuft …";
+      btn.textContent = "Blur startet …";
       const opts = getBlurOptionsPayload();
       try {
         const started = await api("/api/blur/jobs", {
@@ -623,15 +643,11 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ nc_path: nc, options: opts }),
         });
-        let job = started.job;
-        while (job && (job.status === "pending" || job.status === "running")) {
-          const pct = Math.round((job.progress || 0) * 100);
-          btn.textContent = "Blur " + pct + " %";
-          setStatus("Face-Blur: " + nc + " — " + pct + " %");
-          await new Promise((r) => setTimeout(r, 1500));
-          job = (await api("/api/blur/jobs/" + encodeURIComponent(job.id))).job;
-        }
-        if (job.status === "done") {
+        const job = await pollBlurJobUntilDone(started.job, (pct) => {
+          btn.textContent = blurProgressLabel(pct);
+          setStatus("Face-Blur: " + nc + " — " + (pct > 0 ? pct + " %" : "…"));
+        });
+        if (job && job.status === "done") {
           const r = job.result || {};
           const noteExtra = Array.isArray(r.notes) && r.notes.length ? " [" + r.notes.join("; ") + "]" : "";
           setStatus(
@@ -641,10 +657,12 @@
           await reload();
           return;
         }
-        if (job.status === "no_faces") {
+        if (job && job.status === "no_faces") {
           setStatus("Face-Blur: keine Gesichter erkannt — keine Kopie erzeugt", true);
-        } else {
+        } else if (job) {
           setStatus("Face-Blur fehlgeschlagen (" + job.status + "): " + (job.error || ""), true);
+        } else {
+          setStatus("Face-Blur: Job-Status unbekannt", true);
         }
       } catch (e) {
         setStatus("Face-Blur: " + String(e.message || e), true);
@@ -720,15 +738,11 @@
       return;
     }
     if (!job) return;
-    while (job && (job.status === "pending" || job.status === "running")) {
-      setStatus("Face-Blur läuft: " + job.nc_path + " — " + Math.round((job.progress || 0) * 100) + " %");
-      await new Promise((r) => setTimeout(r, 2000));
-      try {
-        job = (await api("/api/blur/jobs/" + encodeURIComponent(job.id))).job;
-      } catch (e) {
-        return;
-      }
-    }
+    job = await pollBlurJobUntilDone(job, (pct, j) => {
+      setStatus(
+        "Face-Blur läuft: " + j.nc_path + " — " + (pct > 0 ? pct + " %" : "…")
+      );
+    });
     if (job && job.status === "done") {
       setStatus("Face-Blur fertig: " + ((job.result || {}).nc_path || job.nc_path) + " — bitte prüfen (blurred_review)");
       reload().catch(() => {});

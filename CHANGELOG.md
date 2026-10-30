@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.7.6
+
+- **Fix:** Video Face-Blur Fortschritt im Button — häufigere DB-Updates (Staging-Ticks, Analyse/Encode), UI pollt zentral alle 1 s.
+
 ## 0.7.5
 
 - **Admin:** Ansicht «Stichworte & Tags (DB)» — `GET /api/search` (FTS wie CLI `phototag search`, Tag-Filter, Paginierung), Karten mit Thumb-Vorschau.

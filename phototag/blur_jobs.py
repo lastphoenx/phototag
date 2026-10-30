@@ -245,9 +245,13 @@ def blur_one_file(
     parent_logical = Path(nc_rel).parent.as_posix()
     try:
         work_src = src
+        if progress:
+            progress(0.02)
         if src.suffix.lower() in VIDEO_EXTS and faceblur_stage_local():
             work_src, was_staged = stage_local(src)
             staged = work_src if was_staged else None
+            if progress:
+                progress(0.08)
         res = blur_file(
             work_src, tmp,
             detector=detector or FaceDetector(),
@@ -315,15 +319,25 @@ def run_blur_job(con: sqlite3.Connection, job_id: str) -> None:
         raise LookupError(f"blur_job {job_id} fehlt")
     if row["status"] != "pending":
         return
-    _update(con, job_id, status="running", started_at=time.time(), heartbeat_at=time.time())
+    _update(con, job_id, status="running", started_at=time.time(), heartbeat_at=time.time(), progress=0.0)
     last_beat = 0.0
+    last_prog = -1.0
 
     def on_progress(frac: float) -> None:
-        nonlocal last_beat
+        nonlocal last_beat, last_prog
         now = time.time()
-        if now - last_beat >= 2.0 or frac >= 1.0:
+        frac = round(float(frac), 3)
+        if frac >= 1.0:
             last_beat = now
-            _update(con, job_id, progress=round(float(frac), 3), heartbeat_at=now)
+            last_prog = frac
+            _update(con, job_id, progress=frac, heartbeat_at=now)
+            return
+        if frac <= last_prog and now - last_beat < 1.0:
+            return
+        if now - last_beat >= 1.0 or frac > last_prog + 0.015:
+            last_beat = now
+            last_prog = max(last_prog, frac)
+            _update(con, job_id, progress=last_prog, heartbeat_at=now)
 
     try:
         job_options = options_from_json(row["options"] if row["options"] else None)

@@ -473,7 +473,7 @@ def analyze_video(
                 before = {t.id: t.angle for t in tracker.tracks}
                 tracker.update(i, passes)
                 switches += sum(1 for t in tracker.tracks if t.id in before and before[t.id] != t.angle)
-            if progress and est and i % 60 == 0:
+            if progress and est and i % 30 == 0:
                 progress(min(progress_span, progress_span * i / est))
     finally:
         reader.close()
@@ -528,7 +528,7 @@ def blur_video(
                 blur_frame(frame, faces, margin=margin)
                 blurred += 1
             enc.stdin.write(frame.data)
-            if progress and i % 60 == 0:
+            if progress and i % 30 == 0:
                 progress(min(0.99, 0.35 + 0.65 * i / est))
         enc.stdin.close()
         err = enc.stderr.read().decode(errors="replace")[:400] if enc.stderr else ""
