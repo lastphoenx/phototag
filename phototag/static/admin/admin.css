@@ -194,6 +194,23 @@ button.tag.removable:hover { border-color: var(--warn); }
 .status-badge.blurred_ok { color: var(--ok); }
 .blur-note.blur-warn { color: var(--warn); }
 .blur-note { font-size: 0.8rem; color: var(--muted); margin-top: 0.25rem; }
+.blur-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.5rem 1.25rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+.blur-settings.hidden { display: none; }
+.blur-custom-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.5rem; }
+.blur-custom-panel.hidden { display: none; }
+.blur-parts { display: inline-flex; flex-wrap: wrap; gap: 0.25rem 0.5rem; }
+.blur-part { font-size: 0.8rem; }
+.blur-range-val { min-width: 2.5rem; color: var(--muted); font-size: 0.8rem; }
+.blur-env-note { font-size: 0.75rem; max-width: 100%; }
+img.blur-preview-img { outline: 2px solid var(--accent); }
 button.danger { color: #ffb4b4; }
 button.blur-busy { opacity: 0.7; cursor: progress; }
 .job-panel {

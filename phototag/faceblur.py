@@ -624,7 +624,71 @@ def blur_image_file(
     return BlurResult(faces=len(faces), width=w, height=h, kind="image", notes=notes)
 
 
-# ---------------------------------------------------------------- video
+def blur_image_to_jpeg(
+    src: Path,
+    *,
+    detector: FaceDetector | None = None,
+    allow_empty: bool = False,
+    max_side: int = 1600,
+    quality: int = 88,
+) -> tuple[bytes, BlurResult]:
+    """Blur in memory — for UI preview (no mount write)."""
+    import io
+
+    cv2, np = _require_cv2()
+    from PIL import Image, ImageOps
+
+    det = detector or FaceDetector()
+    with Image.open(src) as im:
+        im = ImageOps.exif_transpose(im)
+        rgb = np.asarray(im.convert("RGB"))
+    bgr = np.ascontiguousarray(rgb[:, :, ::-1])
+    faces = det.detect(bgr)
+    if not faces and not allow_empty:
+        raise NoFacesFound("Keine Gesichter erkannt")
+    blur_frame(bgr, faces)
+    out = Image.fromarray(np.ascontiguousarray(bgr[:, :, ::-1]))
+    h, w = bgr.shape[:2]
+    long_side = max(w, h)
+    if max_side > 0 and long_side > max_side:
+        scale = max_side / long_side
+        out = out.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.Resampling.LANCZOS)
+        w, h = out.size
+    buf = io.BytesIO()
+    out.convert("RGB").save(buf, "JPEG", quality=quality, subsampling=0)
+    share = blur_area_share(faces, w, h)
+    notes = [faceblur_settings_summary(), f"blur_boxes={len(faces)}", *quality_notes(share, 0)]
+    return buf.getvalue(), BlurResult(faces=len(faces), width=w, height=h, kind="image", notes=notes)
+
+
+def blur_preview_jpeg(src: Path, **kw: Any) -> tuple[bytes, BlurResult]:
+    ext = src.suffix.lower()
+    if ext in IMAGE_EXTS:
+        return blur_image_to_jpeg(src, **kw)
+    if ext in VIDEO_EXTS:
+        import tempfile
+
+        w, h, fps, duration = probe_display(src)
+        seek = min(max(0.5, duration * 0.15), max(0.0, duration - 0.1)) if duration > 0 else 0.5
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            frame_path = Path(tmp.name)
+        try:
+            proc = subprocess.run(
+                [
+                    "ffmpeg", "-v", "error", "-ss", f"{seek:.3f}", "-i", str(src),
+                    "-frames:v", "1", "-q:v", "2", "-y", str(frame_path),
+                ],
+                capture_output=True,
+                timeout=120,
+                check=False,
+            )
+            if proc.returncode != 0 or not frame_path.is_file():
+                raise FaceBlurError("Vorschau-Frame konnte nicht gelesen werden")
+            return blur_image_to_jpeg(frame_path, **kw)
+        finally:
+            frame_path.unlink(missing_ok=True)
+    raise FaceBlurError(f"Vorschau nicht unterstützt: {src.suffix or '(keine Endung)'}")
+
 
 def _parse_rate(raw: str | None) -> float:
     try:
@@ -752,6 +816,7 @@ __all__ = [
     "apply_blur",
     "blur_file",
     "blur_image_file",
+    "blur_preview_jpeg",
     "blur_video_file",
     "blurred_filename",
     "boxes_for_face",

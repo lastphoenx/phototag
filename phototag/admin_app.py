@@ -407,9 +407,19 @@ def create_app():
             return jsonify({"ok": False, "error": "nc_path fehlt"}), 400
         if not mount_accessible():
             return jsonify({"ok": False, "error": "PHOTOTAG_SCAN_ROOT nicht lesbar"}), 503
+        from phototag.blur_options import validate_blur_options_body
+
+        opts_raw = body.get("options")
+        if opts_raw is not None and not isinstance(opts_raw, dict):
+            return jsonify({"ok": False, "error": "options muss Objekt sein"}), 400
+        options, opt_errors = validate_blur_options_body(opts_raw if isinstance(opts_raw, dict) else None)
+        if opt_errors and options is None:
+            return jsonify({"ok": False, "error": "; ".join(opt_errors)}), 400
         con = connect()
         try:
-            job_id = create_blur_job(con, nc_path)
+            job_id = create_blur_job(
+                con, nc_path, options=opts_raw if isinstance(opts_raw, dict) else None
+            )
         except BlurBusy as exc:
             return jsonify({"ok": False, "error": str(exc)}), 409
         except FileNotFoundError as exc:
@@ -417,7 +427,55 @@ def create_app():
         except (FaceBlurError, ValueError) as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         spawn_blur_job_subprocess(job_id)
-        return jsonify({"ok": True, "job": get_blur_job(con, job_id)})
+        job = get_blur_job(con, job_id)
+        if opt_errors:
+            job = {**job, "option_warnings": opt_errors}
+        return jsonify({"ok": True, "job": job})
+
+    @app.get("/api/blur/defaults")
+    def api_blur_defaults():
+        _check_api_auth()
+        if not faceblur_enabled():
+            return jsonify({"ok": False, "error": "Face-Blur nicht aktiv"}), 503
+        from phototag.blur_options import blur_defaults_payload
+
+        return jsonify({"ok": True, **blur_defaults_payload()})
+
+    @app.post("/api/blur/preview")
+    def api_blur_preview():
+        _check_api_auth()
+        from phototag.blur_jobs import blur_preview_for_nc, validate_source
+        from phototag.blur_options import validate_blur_options_body
+        from phototag.faceblur import FaceBlurError, NoFacesFound
+
+        if not faceblur_enabled():
+            return jsonify({"ok": False, "error": "Face-Blur nicht aktiv"}), 503
+        body = request.get_json(silent=True) or {}
+        nc_path = (body.get("nc_path") or "").strip().lstrip("/")
+        if not nc_path:
+            return jsonify({"ok": False, "error": "nc_path fehlt"}), 400
+        opts_raw = body.get("options")
+        if opts_raw is not None and not isinstance(opts_raw, dict):
+            return jsonify({"ok": False, "error": "options muss Objekt sein"}), 400
+        options, opt_errors = validate_blur_options_body(opts_raw if isinstance(opts_raw, dict) else None)
+        if opt_errors and options is None:
+            return jsonify({"ok": False, "error": "; ".join(opt_errors)}), 400
+        if not mount_accessible():
+            return jsonify({"ok": False, "error": "PHOTOTAG_SCAN_ROOT nicht lesbar"}), 503
+        try:
+            validate_source(nc_path)
+            jpeg, meta = blur_preview_for_nc(nc_path, opts_raw if isinstance(opts_raw, dict) else None)
+        except NoFacesFound as exc:
+            return jsonify({"ok": False, "error": str(exc), "no_faces": True}), 404
+        except (FaceBlurError, FileNotFoundError, OSError, ValueError) as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        resp = app.response_class(jpeg, mimetype="image/jpeg")
+        resp.headers["Cache-Control"] = "private, no-store"
+        if opt_errors:
+            resp.headers["X-Phototag-Blur-Warnings"] = "; ".join(opt_errors)[:500]
+        resp.headers["X-Phototag-Blur-Faces"] = str(meta.get("faces", 0))
+        resp.headers["X-Phototag-Blur-Source"] = str(meta.get("settings_source", "env"))
+        return resp
 
     @app.get("/api/blur/jobs/active")
     def api_blur_job_active():

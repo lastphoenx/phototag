@@ -20,6 +20,194 @@
   const faceblurRegion = document.body.dataset.faceblurRegion || "face";
   const faceblurStrength = document.body.dataset.faceblurStrength || "1";
   const faceblurMode = document.body.dataset.faceblurMode || "blur";
+  const BLUR_UI_LS = "phototag.blurUi.v1";
+  let blurDefaults = null;
+  let blurUiReady = false;
+
+  function loadBlurUiState() {
+    try {
+      return JSON.parse(localStorage.getItem(BLUR_UI_LS) || "{}");
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveBlurUiState() {
+    const preset = document.getElementById("blurPreset");
+    if (!preset) return;
+    const state = {
+      preset: preset.value,
+      fill: document.getElementById("blurFill")?.value,
+      margin: document.getElementById("blurMargin")?.value,
+      strength: document.getElementById("blurStrength")?.value,
+      mode: document.getElementById("blurMode")?.value,
+      parts: [...document.querySelectorAll("#blurParts input:checked")].map((el) => el.value),
+    };
+    localStorage.setItem(BLUR_UI_LS, JSON.stringify(state));
+  }
+
+  function getBlurOptionsPayload() {
+    const preset = document.getElementById("blurPreset")?.value || "env";
+    if (preset === "env") return { preset: "env" };
+    if (preset !== "custom") return { preset };
+    const parts = [...document.querySelectorAll("#blurParts input:checked")].map((el) => el.value);
+    return {
+      preset: "custom",
+      region: parts.join(","),
+      fill: document.getElementById("blurFill")?.value || "none",
+      margin: parseFloat(document.getElementById("blurMargin")?.value || "0.4"),
+      strength: parseFloat(document.getElementById("blurStrength")?.value || "1"),
+      mode: document.getElementById("blurMode")?.value || "blur",
+    };
+  }
+
+  function syncBlurCustomPanel() {
+    const preset = document.getElementById("blurPreset")?.value || "env";
+    const custom = document.getElementById("blurCustomPanel");
+    if (custom) custom.classList.toggle("hidden", preset !== "custom");
+  }
+
+  function applyBlurPresetToControls(presetId) {
+    if (!blurDefaults || presetId === "env" || presetId === "custom") return;
+    const p = blurDefaults.presets.find((x) => x.id === presetId);
+    if (!p || p.uses_env) return;
+    if (document.getElementById("blurFill")) document.getElementById("blurFill").value = p.fill || "none";
+    if (document.getElementById("blurMargin")) document.getElementById("blurMargin").value = String(p.margin ?? 0.4);
+    if (document.getElementById("blurStrength")) document.getElementById("blurStrength").value = String(p.strength ?? 1);
+    if (p.region) {
+      const parts = String(p.region).split(/[,+]/).map((s) => s.trim()).filter(Boolean);
+      document.querySelectorAll("#blurParts input").forEach((el) => {
+        el.checked = parts.includes(el.value);
+      });
+    }
+  }
+
+  async function ensureBlurSettingsBar() {
+    if (!faceblurEnabled || blurUiReady) return;
+    const bar = document.getElementById("blurSettingsBar");
+    if (!bar) return;
+    blurDefaults = await api("/api/blur/defaults");
+    if (!blurDefaults.ok) return;
+    const saved = loadBlurUiState();
+    bar.innerHTML = "";
+    bar.classList.remove("hidden");
+    const hint = document.createElement("span");
+    hint.className = "muted-hint";
+    hint.textContent = "Face-Blur:";
+    const presetSel = document.createElement("select");
+    presetSel.id = "blurPreset";
+    blurDefaults.presets.forEach((p) => {
+      const o = document.createElement("option");
+      o.value = p.id;
+      o.textContent = p.label;
+      presetSel.append(o);
+    });
+    presetSel.value = saved.preset || "env";
+    presetSel.onchange = () => {
+      if (presetSel.value !== "custom") applyBlurPresetToControls(presetSel.value);
+      syncBlurCustomPanel();
+      saveBlurUiState();
+    };
+    const customPanel = document.createElement("div");
+    customPanel.id = "blurCustomPanel";
+    customPanel.className = "blur-custom-panel";
+    const partsWrap = document.createElement("div");
+    partsWrap.id = "blurParts";
+    partsWrap.className = "blur-parts";
+    blurDefaults.parts.forEach((part) => {
+      const lab = document.createElement("label");
+      lab.className = "chk blur-part";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = part;
+      if ((saved.parts || []).includes(part)) cb.checked = true;
+      lab.append(cb, " " + part);
+      partsWrap.append(lab);
+    });
+    const fillSel = document.createElement("select");
+    fillSel.id = "blurFill";
+    blurDefaults.fills.forEach((f) => {
+      const o = document.createElement("option");
+      o.value = f;
+      o.textContent = f;
+      fillSel.append(o);
+    });
+    fillSel.value = saved.fill || blurDefaults.env.fill || "none";
+    const margin = document.createElement("input");
+    margin.type = "range";
+    margin.id = "blurMargin";
+    margin.min = blurDefaults.margin.min;
+    margin.max = blurDefaults.margin.max;
+    margin.step = "0.01";
+    margin.value = saved.margin ?? blurDefaults.margin.default;
+    const marginVal = document.createElement("span");
+    marginVal.className = "blur-range-val";
+    marginVal.id = "blurMarginVal";
+    marginVal.textContent = margin.value;
+    margin.oninput = () => {
+      marginVal.textContent = margin.value;
+      saveBlurUiState();
+    };
+    const strength = document.createElement("input");
+    strength.type = "range";
+    strength.id = "blurStrength";
+    strength.min = blurDefaults.strength.min;
+    strength.max = blurDefaults.strength.max;
+    strength.step = "0.05";
+    strength.value = saved.strength ?? blurDefaults.strength.default;
+    const strengthVal = document.createElement("span");
+    strengthVal.className = "blur-range-val";
+    strengthVal.id = "blurStrengthVal";
+    strengthVal.textContent = strength.value;
+    strength.oninput = () => {
+      strengthVal.textContent = strength.value;
+      saveBlurUiState();
+    };
+    const modeSel = document.createElement("select");
+    modeSel.id = "blurMode";
+    blurDefaults.modes.forEach((m) => {
+      const o = document.createElement("option");
+      o.value = m;
+      o.textContent = m;
+      modeSel.append(o);
+    });
+    modeSel.value = saved.mode || blurDefaults.env.mode || "blur";
+    fillSel.onchange = saveBlurUiState;
+    modeSel.onchange = saveBlurUiState;
+    partsWrap.querySelectorAll("input").forEach((el) => {
+      el.onchange = () => {
+        presetSel.value = "custom";
+        syncBlurCustomPanel();
+        saveBlurUiState();
+      };
+    });
+    margin.onchange = strength.onchange = () => {
+      presetSel.value = "custom";
+      syncBlurCustomPanel();
+      saveBlurUiState();
+    };
+    customPanel.append(
+      document.createTextNode("Teile "),
+      partsWrap,
+      document.createTextNode(" fill "),
+      fillSel,
+      document.createTextNode(" margin "),
+      margin,
+      marginVal,
+      document.createTextNode(" strength "),
+      strength,
+      strengthVal,
+      document.createTextNode(" mode "),
+      modeSel
+    );
+    const envNote = document.createElement("span");
+    envNote.className = "blur-env-note muted-hint";
+    envNote.textContent = " Env: " + (blurDefaults.env.summary || "").slice(0, 140);
+    bar.append(hint, presetSel, customPanel, envNote);
+    if (presetSel.value !== "custom") applyBlurPresetToControls(presetSel.value);
+    syncBlurCustomPanel();
+    blurUiReady = true;
+  }
 
   async function withBusyButton(btn, busyLabel, fn) {
     const prev = btn.textContent;
@@ -376,30 +564,59 @@
     actions.append(approveBtn, skipBtn);
   }
 
-  /** Face-Blur: start job for one file, poll, then reload so the new copy shows up. */
-  function appendFaceBlurButton(actions, item, note) {
+  /** Face-Blur: preview (no file) or job with options from the browse bar. */
+  function appendFaceBlurButton(actions, item, note, card, img) {
     if (!faceblurEnabled || !item.nc_path || item.is_blur_copy) return;
+    const previewBtn = document.createElement("button");
+    previewBtn.type = "button";
+    previewBtn.textContent = "Vorschau";
+    previewBtn.title = "Blur-Ergebnis nur in der Karte anzeigen — keine Datei auf dem Mount";
+    previewBtn.onclick = async () => {
+      previewBtn.disabled = true;
+      try {
+        const opts = getBlurOptionsPayload();
+        const res = await fetch("/api/blur/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ nc_path: item.nc_path, options: opts }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || res.statusText);
+        }
+        const blob = await res.blob();
+        const src = URL.createObjectURL(blob);
+        img.src = src;
+        img.classList.add("blur-preview-img");
+        const faces = res.headers.get("X-Phototag-Blur-Faces") || "?";
+        const srcTag = res.headers.get("X-Phototag-Blur-Source") || "env";
+        const warn = res.headers.get("X-Phototag-Blur-Warnings");
+        let msg = "Vorschau (" + faces + " Gesicht(er), Einstellung: " + srcTag + ")";
+        if (warn) msg += " — " + warn;
+        if (note) note.textContent = msg;
+        setStatus(msg);
+      } catch (e) {
+        setStatus("Vorschau: " + String(e.message || e), true);
+      }
+      previewBtn.disabled = false;
+    };
     const btn = document.createElement("button");
     btn.type = "button";
     btn.textContent = "Face-Blur";
-    btn.title =
-      "Gesichter unkenntlich machen (Region: " +
-      faceblurRegion +
-      ", Stärke " +
-      faceblurStrength +
-      ", Modus " +
-      faceblurMode +
-      "). Erzeugt *.ai-blurred.* neben dem Original, Status blurred_review. Einstellung: PHOTOTAG_FACEBLUR_REGION / STRENGTH / MODE in phototag.env.";
+    btn.title = "Erzeugt *.ai-blurred.* neben dem Original (Einstellungen aus der Leiste oben)";
     btn.onclick = async () => {
       const nc = item.nc_path;
       btn.disabled = true;
+      previewBtn.disabled = true;
       btn.classList.add("blur-busy");
       btn.textContent = "Blur läuft …";
+      const opts = getBlurOptionsPayload();
       try {
         const started = await api("/api/blur/jobs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ nc_path: nc }),
+          body: JSON.stringify({ nc_path: nc, options: opts }),
         });
         let job = started.job;
         while (job && (job.status === "pending" || job.status === "running")) {
@@ -428,10 +645,11 @@
         setStatus("Face-Blur: " + String(e.message || e), true);
       }
       btn.disabled = false;
+      previewBtn.disabled = false;
       btn.classList.remove("blur-busy");
       btn.textContent = "Face-Blur";
     };
-    actions.append(btn);
+    actions.append(previewBtn, btn);
   }
 
   /** Human check of a blur copy: approve (blurred_ok) or delete the generated file. */
@@ -827,7 +1045,7 @@
       blurNote.textContent =
         "Blur-Kopie: " + item.blur_copies.map((c) => c.nc_path + " [" + c.status + "]").join(", ");
     }
-    appendFaceBlurButton(actions, item, blurNote);
+    appendFaceBlurButton(actions, item, blurNote, card, img);
     appendBlurReviewActions(actions, item, badge, blurNote);
 
     mountCardByNc.set(item.nc_path, kiCtx);
@@ -1289,6 +1507,7 @@
   async function loadBrowse() {
     setStatus("Lade Ordner …");
     await loadCatalog();
+    if (faceblurEnabled) await ensureBlurSettingsBar();
     renderBreadcrumb();
     await loadSubfolders();
     mountCardByNc.clear();
@@ -1357,6 +1576,8 @@
     document.getElementById("retagWrap").classList.toggle("hidden", !browse);
     document.getElementById("browseRecursiveWrap").classList.toggle("hidden", !browse);
     document.getElementById("subfolders").classList.toggle("hidden", !browse);
+    const blurBar = document.getElementById("blurSettingsBar");
+    if (blurBar) blurBar.classList.toggle("hidden", !browse || !faceblurEnabled);
   }
 
   function reload() {

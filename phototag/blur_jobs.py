@@ -47,6 +47,11 @@ from phototag.faceblur import (
     unique_destination,
 )
 from phototag.nextcloud_sync import nc_dav_relative_path
+from phototag.blur_options import (
+    append_source_to_notes,
+    apply_blur_options_overlay,
+    options_from_json,
+)
 
 STALE_AFTER_SEC = 120
 
@@ -72,6 +77,10 @@ class BlurBusy(RuntimeError):
 
 def ensure_blur_jobs_table(con: sqlite3.Connection) -> None:
     con.executescript(BLUR_JOBS_DDL)
+    try:
+        con.execute("ALTER TABLE blur_jobs ADD COLUMN options TEXT")
+    except sqlite3.OperationalError:
+        pass
     con.commit()
 
 
@@ -104,16 +113,19 @@ def validate_source(nc_rel: str) -> Path:
     return physical
 
 
-def create_blur_job(con: sqlite3.Connection, nc_rel: str) -> str:
+def create_blur_job(con: sqlite3.Connection, nc_rel: str, *, options: dict[str, Any] | None = None) -> str:
+    from phototag.blur_options import options_for_storage
+
     nc_rel = nc_rel.replace("\\", "/").lstrip("/")
     validate_source(nc_rel)
     busy = active_job(con)
     if busy:
         raise BlurBusy(f"Es läuft bereits ein Blur-Job für {busy['nc_path']}")
     job_id = uuid.uuid4().hex[:16]
+    opt_json = options_for_storage(options)
     con.execute(
-        "INSERT INTO blur_jobs(id,nc_path,status,created_at,heartbeat_at) VALUES(?,?,?,?,?)",
-        (job_id, nc_rel, "pending", time.time(), time.time()),
+        "INSERT INTO blur_jobs(id,nc_path,status,created_at,heartbeat_at,options) VALUES(?,?,?,?,?,?)",
+        (job_id, nc_rel, "pending", time.time(), time.time(), opt_json),
     )
     con.commit()
     return job_id
@@ -129,6 +141,7 @@ def get_blur_job(con: sqlite3.Connection, job_id: str) -> dict[str, Any] | None:
     if status in ("pending", "running") and time.time() - beat > STALE_AFTER_SEC:
         status = "stale"
     result = json.loads(row["result"]) if row["result"] else None
+    options = options_from_json(row["options"] if row["options"] else None)
     return {
         "id": row["id"],
         "nc_path": row["nc_path"],
@@ -136,6 +149,7 @@ def get_blur_job(con: sqlite3.Connection, job_id: str) -> dict[str, Any] | None:
         "progress": row["progress"],
         "result": result,
         "error": row["error"],
+        "options": options,
         "created_at": row["created_at"],
         "finished_at": row["finished_at"],
     }
@@ -216,8 +230,11 @@ def blur_one_file(
     *,
     detector: FaceDetector | None = None,
     progress: Any = None,
+    options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create the blur copy for ``nc_rel`` and register it. Raises NoFacesFound / FaceBlurError."""
+    load_phototag_env(override=True)
+    source = apply_blur_options_overlay(options)
     nc_rel = nc_rel.replace("\\", "/").lstrip("/")
     src = validate_source(nc_rel)
     source_row = ensure_indexed_from_mount(con, nc_rel)
@@ -243,6 +260,7 @@ def blur_one_file(
             dest.unlink(missing_ok=True)
             raise FaceBlurError("Kopie auf den Mount unvollständig (Grösse weicht ab)")
         dest_nc = nc_rel_from_dir_file("" if parent_logical == "." else parent_logical, dest.name)
+        append_source_to_notes(res.notes, source)
         new_id = register_blurred_file(
             con, dest_nc, source_id=source_row["id"], source_name=src.name, faces=res.faces,
             info="; ".join(res.notes), local=tmp,
@@ -261,7 +279,30 @@ def blur_one_file(
         "kind": res.kind,
         "frames": res.frames,
         "notes": res.notes,
+        "settings_source": source,
         "status": BLUR_REVIEW,
+    }
+
+
+def blur_preview_for_nc(
+    nc_rel: str,
+    options: dict[str, Any] | None = None,
+    *,
+    detector: FaceDetector | None = None,
+) -> tuple[bytes, dict[str, Any]]:
+    """JPEG preview bytes + metadata (no mount write)."""
+    from phototag.faceblur import blur_preview_jpeg
+
+    load_phototag_env(override=True)
+    source = apply_blur_options_overlay(options)
+    src = validate_source(nc_rel)
+    jpeg, res = blur_preview_jpeg(src, detector=detector or FaceDetector())
+    append_source_to_notes(res.notes, source)
+    return jpeg, {
+        "faces": res.faces,
+        "kind": res.kind,
+        "notes": res.notes,
+        "settings_source": source,
     }
 
 
@@ -284,7 +325,8 @@ def run_blur_job(con: sqlite3.Connection, job_id: str) -> None:
             _update(con, job_id, progress=round(float(frac), 3), heartbeat_at=now)
 
     try:
-        result = blur_one_file(con, row["nc_path"], progress=on_progress)
+        job_options = options_from_json(row["options"] if row["options"] else None)
+        result = blur_one_file(con, row["nc_path"], progress=on_progress, options=job_options)
         _update(con, job_id, status="done", finished_at=time.time(), progress=1.0,
                 result=json.dumps(result, ensure_ascii=False), heartbeat_at=time.time())
     except NoFacesFound as exc:
@@ -352,6 +394,7 @@ __all__ = [
     "approve_blur",
     "blur_copies_by_source",
     "blur_one_file",
+    "blur_preview_for_nc",
     "create_blur_job",
     "get_blur_job",
     "reject_blur",
