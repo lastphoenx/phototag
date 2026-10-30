@@ -329,8 +329,13 @@ def encode_video(path: Path) -> dict:
 
 
 def build_prompt(categories: list[tuple[str, str]], is_video: bool) -> str:
+    from phototag.tagging import vision_prompt_anonymization_block
+
     lines = "\n".join(f"- {t}: {h}" if h else f"- {t}" for t, h in categories)
     lang = prompt_lang()
+    allowed_ids = {t for t, _ in categories}
+    anon_block = vision_prompt_anonymization_block(lang, allowed_ids)
+    anon_suffix = f"\n{anon_block}" if anon_block else ""
     if lang == "en":
         where = (
             "The images are frames of ONE video in chronological order. Apply each tag that "
@@ -348,6 +353,7 @@ def build_prompt(categories: list[tuple[str, str]], is_video: bool) -> str:
             "- observations: optional short phrases for details without a matching tag, max 8 items.\n"
             f"- caption: one factual sentence in German (max {caption_max()} characters).\n"
             "Do not invent tag ids outside the list; put extras in observations."
+            + anon_suffix
         )
     where = (
         "Die Bilder sind Frames EINES Videos in zeitlicher Reihenfolge. Vergib jeden Tag, der in "
@@ -365,6 +371,7 @@ def build_prompt(categories: list[tuple[str, str]], is_video: bool) -> str:
         "- observations: optional kurze Beobachtungen zu Details ohne passenden Tag, max. 8 Einträge.\n"
         f"- caption: ein sachlicher Satz auf Deutsch (max. {caption_max()} Zeichen).\n"
         "Erfinde keine Tag-IDs ausserhalb der Liste; Extras gehören in observations."
+        + anon_suffix
     )
 
 
@@ -560,6 +567,10 @@ def sanitize_tags(tags: list[str], allowed: set[str]) -> tuple[list[str], list[s
     flags: list[str] = []
 
     flags.extend(_apply_sanitize_rules(t, allowed, _load_sanitize_rules(), tags))
+
+    from phototag.tagging import strip_invalid_detail_under_censor
+
+    flags.extend(strip_invalid_detail_under_censor(t))
 
     if "outdoor" in t and "indoor" in t:
         flags.append("outdoor_and_indoor")

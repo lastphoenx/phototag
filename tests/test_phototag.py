@@ -344,3 +344,31 @@ def test_sanitize_rules_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("PHOTOTAG_SANITIZE_RULES", str(rules_path))
     tags, _ = sanitize_tags(["alpha", "beta"], {"alpha", "beta"})
     assert tags == ["alpha"]
+
+
+def test_vision_prompt_anonymization_block():
+    from phototag.tagging import vision_prompt_anonymization_block
+
+    assert vision_prompt_anonymization_block("de", {"landscape"}) == ""
+    block = vision_prompt_anonymization_block("de", {"privacy_blur", "face_visible", "face_censored"})
+    assert "Anonymisierung" in block
+    assert "face_censored statt face_visible" in block
+    assert "Bokeh" in block
+    gran = vision_prompt_anonymization_block(
+        "de",
+        {"privacy_blur", "nipples_censored", "breasts_censored", "penis_censored", "vulva_censored"},
+    )
+    assert "nipples_censored" in gran
+    assert "penis_censored vs vulva_censored" in gran
+
+
+def test_strip_invalid_detail_under_censor():
+    from phototag.tagging import strip_invalid_detail_under_censor
+
+    t = {"anus_censored", "genitals_shaved", "rear_view_naked", "anus_visible"}
+    flags = strip_invalid_detail_under_censor(t)
+    assert "genitals_shaved" not in t
+    assert "anus_visible" not in t
+    assert "rear_view_naked" in t
+    assert "grooming_under_censor" in flags
+    assert "anus_detail_under_censor" in flags

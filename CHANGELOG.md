@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.15
+
+- **KI:** Zusatz-Prompt für absichtliche Anonymisierung (Blur/Mosaik/Balken) vs. Bokeh; granulare `*_censored`-Regionen inkl. Gesäß/After/Hoden/rear; **kein** `genitals_shaved`/Anatomie-Detail unter Zensur (Prompt + `strip_invalid_detail_under_censor` bei Sanitize).
+
 ## 0.5.14
 
 - **Nacht-Lauf:** **Ein** `scan` pro Nacht-Job, danach nur **`tag`-Batches** — kein Voll-Scan in jeder Schleifen-Runde mehr (rclone/CT-schonend). Optional `PHOTOTAG_NIGHT_RESCAN_WHEN_IDLE=1`.

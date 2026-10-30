@@ -10,6 +10,282 @@ from typing import Any
 from phototag.admin_browse import normalize_folder
 from phototag.nextcloud_sync import nc_dav_relative_path
 
+# Tag-IDs für absichtliche Anonymisierung/Zensur (nur in lokaler categories.txt).
+# Der Prompt-Block erscheint, wenn mindestens einer in der geladenen Tag-Liste vorkommt.
+ANONYMIZATION_CENSOR_TAG_IDS: tuple[str, ...] = (
+    "privacy_blur",
+    "face_censored",
+    "breasts_censored",
+    "nipples_censored",
+    "genitals_censored",
+    "penis_censored",
+    "vulva_censored",
+    "buttocks_censored",
+    "anus_censored",
+    "testicles_censored",
+    "pixelation",
+    "bar_censor",
+)
+
+# Feinere Zensur-Regionen — Prompt-Hinweise nur wenn in categories.txt vorhanden.
+GRANULAR_CENSOR_REGION_TAG_IDS: tuple[str, ...] = (
+    "nipples_censored",
+    "breasts_censored",
+    "penis_censored",
+    "vulva_censored",
+    "genitals_censored",
+    "buttocks_censored",
+    "anus_censored",
+    "testicles_censored",
+)
+
+# Zensur über Genital/After/Hoden — kein «rasiert/behaart» aus Blur/Balken ableiten.
+GENITAL_AREA_CENSOR_TAG_IDS: frozenset[str] = frozenset(
+    {
+        "penis_censored",
+        "vulva_censored",
+        "genitals_censored",
+        "anus_censored",
+        "testicles_censored",
+    }
+)
+
+ANUS_DETAIL_TAG_IDS: frozenset[str] = frozenset(
+    {"anus_visible", "anus_closeup", "anus_spread"},
+)
+REAR_VULVA_DETAIL_TAG_IDS: frozenset[str] = frozenset(
+    {"rear_view_genitals", "rear_pussy", "genitals_visible"},
+)
+TESTICLE_DETAIL_TAG_IDS: frozenset[str] = frozenset(
+    {"testicles_visible", "testicles_large", "testicles_small"},
+)
+PENIS_DETAIL_TAG_IDS: frozenset[str] = frozenset(
+    {
+        "penis_visible",
+        "penis_erect",
+        "penis_flaccid",
+        "penis_closeup",
+        "penis_large",
+        "penis_small",
+        "penis_thick",
+        "penis_thin",
+        "penis_long",
+        "penis_short",
+    },
+)
+GROOMING_DETAIL_TAG_IDS: frozenset[str] = frozenset({"genitals_shaved", "genitals_hairy"})
+
+
+def strip_invalid_detail_under_censor(t: set[str]) -> list[str]:
+    """Detail-Tags entfernen, die unter *_censored nicht belegbar sind."""
+    flags: list[str] = []
+    genital_censor = t & GENITAL_AREA_CENSOR_TAG_IDS
+    if genital_censor and t & GROOMING_DETAIL_TAG_IDS:
+        t -= GROOMING_DETAIL_TAG_IDS
+        flags.append("grooming_under_censor")
+    if "anus_censored" in t and t & ANUS_DETAIL_TAG_IDS:
+        t -= ANUS_DETAIL_TAG_IDS
+        flags.append("anus_detail_under_censor")
+    if "vulva_censored" in t and t & REAR_VULVA_DETAIL_TAG_IDS:
+        t -= REAR_VULVA_DETAIL_TAG_IDS
+        flags.append("vulva_detail_under_censor")
+    if "testicles_censored" in t and t & TESTICLE_DETAIL_TAG_IDS:
+        t -= TESTICLE_DETAIL_TAG_IDS
+        flags.append("testicles_detail_under_censor")
+    if "penis_censored" in t and t & PENIS_DETAIL_TAG_IDS:
+        t -= PENIS_DETAIL_TAG_IDS
+        flags.append("penis_detail_under_censor")
+    return flags
+
+
+def _vision_prompt_censor_no_detail_inference(lang: str, allowed: set[str]) -> str:
+    """Blur/Balken/Emoji ≠ sichtbare Hautdetails."""
+    if not (allowed & GENITAL_AREA_CENSOR_TAG_IDS or allowed & GROOMING_DETAIL_TAG_IDS):
+        return ""
+    if lang == "en":
+        return (
+            "- Under censorship (blur, bar, emoji, circle, mosaic): do not tag skin details that are "
+            "hidden — smooth censor patches are not genitals_shaved/genitals_hairy; no anus_visible, "
+            "rear_view_genitals, penis_visible, testicles_visible, etc. on covered areas. "
+            "rear_view_naked / rear_view still OK when the pose is clearly a naked rear, with *_censored "
+            "on the hidden patches only."
+        )
+    return (
+        "- Unter Zensur (Blur, Balken, Emoji, Kreis, Mosaik): keine Detail-Tags für verdeckte Stellen — "
+        "glatte Zensurfläche ist nicht genitals_shaved/genitals_hairy; kein anus_visible, rear_view_genitals, "
+        "rear_pussy, penis_visible, testicles_visible usw. auf abgedeckten Bereichen. "
+        "rear_view_naked / rear_view weiter setzen, wenn klar nacktes Gesäß von hinten, plus passende "
+        "*_censored nur auf den verdeckten Flecken."
+    )
+
+
+def _vision_prompt_censor_granularity(lang: str, allowed: set[str]) -> str:
+    present = [t for t in GRANULAR_CENSOR_REGION_TAG_IDS if t in allowed]
+    if not present:
+        return ""
+    lines_de = [
+        "- Zensur-Region (was verdeckt ist, nicht was darunter erkennbar wäre):",
+    ]
+    if "nipples_censored" in allowed:
+        lines_de.append(
+            "  nipples_censored: nur Brustwarze/Hof per Blur/Balken/Mosaik — Brustform daneben noch sichtbar."
+        )
+    if "breasts_censored" in allowed:
+        lines_de.append(
+            "  breasts_censored: ganze Brust bzw. große Brustfläche verdeckt (inkl. Warzen); "
+            "nicht bei kleiner Warzen-Abdeckung allein."
+        )
+    if "penis_censored" in allowed and "vulva_censored" in allowed:
+        lines_de.append(
+            "  penis_censored vs vulva_censored: an Körperkontext wählen (Schaft/Glans vs Schamlippen/Vulva); "
+            "genitals_censored nur wenn Geschlecht/Teil unklar."
+        )
+    elif "penis_censored" in allowed:
+        lines_de.append("  penis_censored: Penis/Schaft/Glans-Bereich absichtlich verdeckt.")
+    elif "vulva_censored" in allowed:
+        lines_de.append(
+            "  vulva_censored: Vulva/Schambereich verdeckt (vorn oder von hinten zwischen den Beinen; "
+            "entspricht rear_view_genitals/rear_pussy wenn dort zensiert)."
+        )
+    elif "genitals_censored" in allowed:
+        lines_de.append("  genitals_censored: Genitalbereich verdeckt, wenn penis/vulva nicht unterscheidbar.")
+    if "buttocks_censored" in allowed:
+        lines_de.append(
+            "  buttocks_censored: Gesäßfläche/Po verdeckt (Blur/Balken); rear_view_naked trotzdem möglich, "
+            "wenn Pose klar nacktes Gesäß ist und nur Teile verdeckt sind."
+        )
+    if "anus_censored" in allowed:
+        lines_de.append("  anus_censored: After/Anus-Bereich verdeckt (nicht anus_visible/spread setzen).")
+    if "testicles_censored" in allowed:
+        lines_de.append("  testicles_censored: Hoden/Eier verdeckt (nicht testicles_visible).")
+    lines_de.append(
+        "- Keine widersprüchlichen Paare: bei *_censored nicht das passende Sichtbar-Tag "
+        "(nipples, breasts, penis_visible, genitals_visible, …)."
+    )
+    if lang == "en":
+        return (
+            "- Censor region (what is hidden, not what might be visible under blur):\n"
+            + "\n".join(
+                line.replace("  ", "  ", 1) if line.startswith("  ") else line
+                for line in [
+                    *(
+                        [
+                            "  nipples_censored: only areola/nipple patch censored; breast shape still visible."
+                        ]
+                        if "nipples_censored" in allowed
+                        else []
+                    ),
+                    *(
+                        [
+                            "  breasts_censored: whole breast or large breast area censored; not tiny nipple-only patches."
+                        ]
+                        if "breasts_censored" in allowed
+                        else []
+                    ),
+                    *(
+                        [
+                            "  penis_censored vs vulva_censored: pick by anatomy/context; "
+                            "genitals_censored only if unclear."
+                        ]
+                        if "penis_censored" in allowed and "vulva_censored" in allowed
+                        else []
+                    ),
+                    *(
+                        ["  penis_censored: penis/shaft/glans area deliberately hidden."]
+                        if "penis_censored" in allowed
+                        and "vulva_censored" not in allowed
+                        else []
+                    ),
+                    *(
+                        ["  vulva_censored: vulva/labia censored front or rear between legs (rear_pussy patch)."]
+                        if "vulva_censored" in allowed
+                        and "penis_censored" not in allowed
+                        else []
+                    ),
+                    *(
+                        ["  buttocks_censored: butt cheeks censored; rear_view_naked may still apply."]
+                        if "buttocks_censored" in allowed
+                        else []
+                    ),
+                    *(
+                        ["  anus_censored: anus area censored — not anus_visible/spread."]
+                        if "anus_censored" in allowed
+                        else []
+                    ),
+                    *(
+                        ["  testicles_censored: testicles censored — not testicles_visible."]
+                        if "testicles_censored" in allowed
+                        else []
+                    ),
+                    *(
+                        ["  genitals_censored: crotch censored when penis vs vulva not distinguishable."]
+                        if "genitals_censored" in allowed
+                        and "penis_censored" not in allowed
+                        and "vulva_censored" not in allowed
+                        else []
+                    ),
+                    "- Do not combine *_censored with matching visible tags (nipples, breasts, penis_visible, …).",
+                ]
+            )
+        )
+    return "\n".join(lines_de)
+
+
+def vision_prompt_anonymization_block(lang: str, allowed: set[str]) -> str:
+    """Zusatz-Anweisungen für VL: Zensur-Blur vs. natürliche Unschärfe."""
+    censor_present = [t for t in ANONYMIZATION_CENSOR_TAG_IDS if t in allowed]
+    if not censor_present:
+        return ""
+    examples = ", ".join(censor_present[:6])
+    if len(censor_present) > 6:
+        examples += ", …"
+    face_rules: list[str] = []
+    if "face_visible" in allowed and "face_censored" in allowed:
+        if lang == "en":
+            face_rules.append(
+                "face_visible only if the face is recognizable; if censored (blur/bar/pixel), "
+                "use face_censored instead of face_visible."
+            )
+        else:
+            face_rules.append(
+                "face_visible nur wenn das Gesicht erkennbar ist; bei absichtlicher Gesichts-Zensur "
+                "face_censored statt face_visible."
+            )
+    elif "face_visible" in allowed:
+        if lang == "en":
+            face_rules.append("Do not set face_visible when a face is deliberately censored.")
+        else:
+            face_rules.append("face_visible nicht setzen, wenn ein Gesicht absichtlich zensiert ist.")
+    face_block = ""
+    if face_rules:
+        face_block = "\n- " + face_rules[0]
+    gran_block = _vision_prompt_censor_granularity(lang, allowed)
+    gran_suffix = f"\n{gran_block}" if gran_block else ""
+    detail_block = _vision_prompt_censor_no_detail_inference(lang, allowed)
+    detail_suffix = f"\n{detail_block}" if detail_block else ""
+
+    if lang == "en":
+        return (
+            "- Anonymization / censorship in the image: If blur, mosaic/pixelation, bars, or stickers "
+            "deliberately hide body parts or faces (not artistic depth-of-field), set the matching tags "
+            f"from the list (e.g. {examples}).\n"
+            "- Do not use these tags for motion blur, bokeh, soft focus, or an out-of-focus background "
+            "without censorship intent."
+            + face_block
+            + gran_suffix
+            + detail_suffix
+        )
+    return (
+        "- Anonymisierung / Zensur im Bild: Wenn absichtliche Unschärfe, Mosaik/Pixelierung, Balken oder "
+        "Sticker Körperteile oder Gesichter verbergen (nicht künstliche Tiefenschärfe), vergib die "
+        f"passenden Tags aus der Liste (z. B. {examples}).\n"
+        "- Diese Tags nicht bei Bewegungsunschärfe, Bokeh, weichem Zeichenstil oder unscharfem Hintergrund "
+        "ohne Zensur-Absicht."
+        + face_block
+        + gran_suffix
+        + detail_suffix
+    )
+
 
 def nc_path_of_row(row: sqlite3.Row) -> str:
     return nc_dav_relative_path(row["root"], row["path"])

@@ -55,3 +55,12 @@ genitals_through_fabric: Schambereich/Kontur durch Stoff erkennbar (sheer/nass)
 no_bra_visible: BH-Linien/fehlender BH unter sheer/Top erkennbar
 thong: String-Tanga sichtbar
 g_string: G-String (minimaler Slip)
+
+# --- Anonymisierung im Bild (optional — Detail-Tags nur in lokaler categories.txt) ---
+# Widersprüche (z. B. face_visible + face_censored): PHOTOTAG_SANITIZE_RULES auf dem Server.
+privacy_blur: absichtliche Unschärfe/Weichzeichner über Körper oder Gesicht (Zensur, nicht Bokeh)
+pixelation: Mosaik/Pixelierung zur Abdeckung
+bar_censor: Balken, Sticker oder Fläche zur bewussten Verdeckung
+face_censored: Gesicht absichtlich unkenntlich gemacht (Blur, Balken, Pixel)
+face_visible: Gesicht klar erkennbar (nicht zensiert)
+face_hidden: Gesicht nicht sichtbar (Profil, abgeschnitten, weggedreht — ohne Pixel-Zensur)
