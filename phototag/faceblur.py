@@ -31,6 +31,7 @@ from phototag.config import (
     faceblur_model_path,
     faceblur_region,
     faceblur_regions,
+    faceblur_rotate,
     faceblur_scale,
     faceblur_score,
     faceblur_settings_summary,
@@ -40,6 +41,8 @@ from phototag.config import (
     faceblur_video_stride,
     faceblur_video_timeout_sec,
 )
+
+ROTATED_MIN_SCORE = 0.6
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi"}
@@ -147,7 +150,8 @@ class FaceDetector:
         self._score = score if score is not None else faceblur_score()
         self._det = cv2.FaceDetectorYN.create(path, "", (320, 320), self._score, 0.3, 5000)
 
-    def detect(self, bgr, *, max_side: int | None = None) -> list[FaceBox]:
+    def _raw_detect(self, bgr, max_side: int | None = None, min_score: float | None = None) -> list[FaceBox]:
+        """One pass, coordinates of the image passed in."""
         cv2 = self._cv2
         h, w = bgr.shape[:2]
         limit = max_side or faceblur_max_detect_side()
@@ -158,7 +162,7 @@ class FaceDetector:
             work = cv2.resize(bgr, (max(1, round(w * scale)), max(1, round(h * scale))), interpolation=cv2.INTER_AREA)
         wh, ww = work.shape[:2]
         self._det.setInputSize((ww, wh))
-        self._det.setScoreThreshold(faceblur_score())
+        self._det.setScoreThreshold(faceblur_score() if min_score is None else min_score)
         _, faces = self._det.detect(work)
         out: list[FaceBox] = []
         if faces is None:
@@ -176,6 +180,65 @@ class FaceDetector:
                 )
             out.append(FaceBox(x / scale, y / scale, bw / scale, bh / scale, score, landmarks=lm))
         return out
+
+    def detect(self, bgr, *, max_side: int | None = None) -> list[FaceBox]:
+        """Faces in the coordinates of ``bgr``. With rotation on, sideways/upside-down heads use upright landmarks."""
+        found = self._raw_detect(bgr, max_side)
+        if faceblur_rotate():
+            cv2 = self._cv2
+            h, w = bgr.shape[:2]
+            for code, k in (
+                (cv2.ROTATE_90_CLOCKWISE, 90),
+                (cv2.ROTATE_180, 180),
+                (cv2.ROTATE_90_COUNTERCLOCKWISE, 270),
+            ):
+                rotated = cv2.rotate(bgr, code)
+                strict = max(faceblur_score(), ROTATED_MIN_SCORE)
+                found.extend(_unrotate_face(f, k, w, h) for f in self._raw_detect(rotated, max_side, strict))
+        return _merge_faces(found)
+
+
+def _unrotate_point(x: float, y: float, k: int, w: int, h: int) -> tuple[float, float]:
+    """Map a point of the image rotated clockwise by k degrees back to the original (w x h)."""
+    if k == 90:
+        return y, h - x
+    if k == 180:
+        return w - x, h - y
+    if k == 270:
+        return w - y, x
+    return x, y
+
+
+def _unrotate_face(f: FaceBox, k: int, w: int, h: int) -> FaceBox:
+    corners = [
+        _unrotate_point(px, py, k, w, h)
+        for px, py in ((f.x, f.y), (f.x + f.w, f.y), (f.x + f.w, f.y + f.h), (f.x, f.y + f.h))
+    ]
+    xs, ys = [c[0] for c in corners], [c[1] for c in corners]
+    lm = tuple(_unrotate_point(px, py, k, w, h) for px, py in f.landmarks) if f.landmarks else None
+    return FaceBox(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys), f.score, landmarks=lm)
+
+
+def _iou(a: FaceBox, b: FaceBox) -> float:
+    ix = max(0.0, min(a.x + a.w, b.x + b.w) - max(a.x, b.x))
+    iy = max(0.0, min(a.y + a.h, b.y + b.h) - max(a.y, b.y))
+    inter = ix * iy
+    union = a.w * a.h + b.w * b.h - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _merge_faces(faces: list[FaceBox]) -> list[FaceBox]:
+    """Same face in several orientations -> keep the best-scoring detection."""
+    kept: list[FaceBox] = []
+    for f in sorted(faces, key=lambda x: -x.score):
+        cx, cy = f.x + f.w / 2, f.y + f.h / 2
+        if any(
+            _iou(f, k) > 0.25 or (k.x <= cx <= k.x + k.w and k.y <= cy <= k.y + k.h)
+            for k in kept
+        ):
+            continue
+        kept.append(f)
+    return sorted(kept, key=lambda x: (x.y, x.x))
 
 
 # ---------------------------------------------------------------- blur
@@ -232,12 +295,13 @@ class _Frame:
         dx, dy = self.le[0] - self.re[0], self.le[1] - self.re[1]
         self.d = max(8.0, (dx * dx + dy * dy) ** 0.5)
         ux, uy = dx / self.d, dy / self.d
-        if ux < 0:  # the axis has no direction; keep "down" pointing down for upright faces
-            ux, uy = -ux, -uy
-        self.u = (ux, uy)
-        self.n = (-uy, ux)  # unit normal, points down for an upright face
         self.eye_mid = ((self.re[0] + self.le[0]) / 2.0, (self.re[1] + self.le[1]) / 2.0)
         self.mouth_mid = ((self.rcm[0] + self.lcm[0]) / 2.0, (self.rcm[1] + self.lcm[1]) / 2.0)
+        nx, ny = -uy, ux
+        if (self.mouth_mid[0] - self.eye_mid[0]) * nx + (self.mouth_mid[1] - self.eye_mid[1]) * ny < 0:
+            ux, uy, nx, ny = -ux, -uy, -nx, -ny
+        self.u = (ux, uy)
+        self.n = (nx, ny)
         mdx, mdy = self.lcm[0] - self.rcm[0], self.lcm[1] - self.rcm[1]
         self.mouth_w = max(self.d * 0.4, (mdx * mdx + mdy * mdy) ** 0.5)
         self.box = b

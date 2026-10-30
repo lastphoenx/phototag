@@ -373,6 +373,11 @@ def faceblur_part_wh(part: str) -> tuple[float, float]:
     )
 
 
+def faceblur_rotate() -> bool:
+    """Detect in 4 orientations (0/90/180/270). YuNet sideways hits need an upright pass for landmarks."""
+    return _env_bool("PHOTOTAG_FACEBLUR_ROTATE", True)
+
+
 def faceblur_scale(part: str) -> float:
     """Per-part size factor PHOTOTAG_FACEBLUR_SCALE_<PART> (nose, mouth, ears, chin, forehead)."""
     return _env_float(f"PHOTOTAG_FACEBLUR_SCALE_{part.upper()}", 1.0, 0.3, 3.0)
@@ -550,6 +555,8 @@ def faceblur_settings_summary() -> str:
     scales = [f"{p}={faceblur_scale(p):g}" for p in ("nose", "mouth", "ears", "chin", "forehead") if p in faceblur_regions() and faceblur_scale(p) != 1.0]
     if scales:
         base += " scale[" + " ".join(scales) + "]"
+    if not faceblur_rotate():
+        base += " rotate=off"
     if faceblur_fill() != "none":
         base += f" fill={faceblur_fill()}" + (f"(gap={faceblur_fill_gap():g})" if faceblur_fill() == "bridge" else "")
     if "eyebar" in faceblur_regions():

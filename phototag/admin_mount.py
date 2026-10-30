@@ -155,6 +155,7 @@ def _mount_entry_from_row(
         "source": "mount",
         "is_blur_copy": bool(row and row["derived_from"] is not None),
         "blur_faces": row["blur_faces"] if row else None,
+        "thumb_v": (row["sha1"] or "")[:12] if row else "",
         "blur_info": (row["error"] or "") if row and row["derived_from"] is not None else "",
         "blur_copies": (blur_map or {}).get(row["id"], []) if row else [],
     }

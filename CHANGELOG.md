@@ -2,6 +2,12 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.6.6
+
+- **Vorschaubilder immer aktuell:** `/api/browse/thumb` und `/api/images/<id>/thumb` senden ETag + `no-cache` statt `max-age=86400`. Gleicher Dateiname nach *Blur verwerfen* + neuem Blur zeigte sonst 24 h das alte Bild (Job hatte trotzdem neue Einstellungen). Browse-Karten nutzen `thumb_v` (SHA1-Prefix) in der Thumb-URL.
+- **Erkennung in 4 Drehungen (`PHOTOTAG_FACEBLUR_ROTATE=1`, Standard):** YuNet erkennt liegende/kopfstehende Gesichter, liefert Landmarks aber wie bei aufrechtem Kopf — Teile lagen daneben. Zusätzliche Pässe 90/180/270°, bester Treffer pro Gesicht; Extra-Pässe min. Score 0,6. ~4× Erkennungszeit (~104 ms vs ~27 ms bei 1280×720). `PHOTOTAG_FACEBLUR_ROTATE=0` schaltet aus.
+- **Face-Blur bei gedrehtem Kopf:** «Abwärts» am Gesicht aus Augen→Mund, nicht Bildachse.
+
 ## 0.6.5
 
 - **Face-Blur: Lücken zwischen den Teilen füllen.** `PHOTOTAG_FACEBLUR_FILL=none` (Standard, einzelne Balken) | `bridge` (Lücken zwischen übereinanderliegenden Teilen werden geschlossen, z. B. Augenbalken, Nase, Mund zu einer Säule; Wangen neben schmaleren Teilen bleiben sichtbar) | `hull` (eine einzige konvexe Fläche um alle gewählten Teile). `PHOTOTAG_FACEBLUR_FILL_GAP` (1.5 Augenabstände) begrenzt die grösste Lücke bei `bridge`. Folgt der Kopfneigung, gilt für Bilder und Videos.

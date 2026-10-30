@@ -81,6 +81,15 @@ def create_app():
             return
         abort(401)
 
+    def _thumb_response(blob: bytes):
+        """JPEG with ETag + no-cache: re-created files with the same name get a fresh preview."""
+        import hashlib
+
+        resp = app.response_class(blob, mimetype="image/jpeg")
+        resp.set_etag(hashlib.md5(blob).hexdigest())
+        resp.headers["Cache-Control"] = "private, no-cache"
+        return resp.make_conditional(request)
+
     @app.before_request
     def _guard():
         if request.endpoint in (None, "static", "login", "login_post"):
@@ -219,9 +228,7 @@ def create_app():
         blob = thumb_bytes_for_nc(con, nc_path)
         if not blob:
             abort(404)
-        resp = app.response_class(blob, mimetype="image/jpeg")
-        resp.headers["Cache-Control"] = "private, max-age=86400"
-        return resp
+        return _thumb_response(blob)
 
     @app.post("/api/browse/save")
     def api_browse_save():
@@ -452,9 +459,7 @@ def create_app():
         row = con.execute("SELECT thumb FROM images WHERE id=?", (image_id,)).fetchone()
         if not row or not row["thumb"]:
             abort(404)
-        resp = app.response_class(row["thumb"], mimetype="image/jpeg")
-        resp.headers["Cache-Control"] = "private, max-age=86400"
-        return resp
+        return _thumb_response(row["thumb"])
 
     @app.post("/api/review/<int:image_id>/approve")
     def api_approve(image_id: int):

@@ -811,3 +811,131 @@ def test_width_height_factors_change_the_shape(monkeypatch):
     monkeypatch.setenv("PHOTOTAG_FACEBLUR_SCALE_MOUTH_W", "1.6")
     wide = fb.boxes_for_face(b, "mouth", 0.0, 600, 600)[0]
     assert (wide[2] - wide[0]) > (base[2] - base[0]) * 1.3 and (wide[3] - wide[1]) == (base[3] - base[1])
+
+
+# ---------------------------------------------------------------- 0.6.6: stale previews, rolled faces
+
+@pytest.mark.parametrize("tilt", [0, 45, 90, 135, 180, 270, -60])
+def test_parts_sit_right_for_any_head_roll(tilt):
+    b, at = _prop(tilt_deg=tilt)
+    nose, mouth_mid = b.landmarks[2], ((b.landmarks[3][0] + b.landmarks[4][0]) / 2, (b.landmarks[3][1] + b.landmarks[4][1]) / 2)
+    for part, target in (("nose", nose), ("mouth", mouth_mid)):
+        shape = fb.boxes_for_face(b, part, 0.0, 800, 800)[0]
+        assert _inside(_poly(shape), target), f"{part} misses its landmark at roll {tilt}"
+    bar = fb.boxes_for_face(b, "eyebar", 0.0, 800, 800)[0]
+    assert all(_inside(_poly(bar), e) for e in b.landmarks[:2])
+    assert not _inside(_poly(bar), mouth_mid)
+    chin = fb.boxes_for_face(b, "chin", 0.0, 800, 800)[0]
+    assert not _inside(_poly(chin), nose)
+    cx, cy = _center_of(chin)
+    ex, ey = (b.landmarks[0][0] + b.landmarks[1][0]) / 2, (b.landmarks[0][1] + b.landmarks[1][1]) / 2
+    assert (cx - ex) ** 2 + (cy - ey) ** 2 > (mouth_mid[0] - ex) ** 2 + (mouth_mid[1] - ey) ** 2
+
+
+def test_mirrored_landmark_labels_do_not_flip_the_face():
+    b, _ = _prop()
+    re, le, nt, rcm, lcm = b.landmarks
+    swapped = fb.FaceBox(b.x, b.y, b.w, b.h, b.score, landmarks=(le, re, nt, lcm, rcm))
+    shape = fb.boxes_for_face(swapped, "mouth", 0.0, 800, 800)[0]
+    assert _inside(_poly(shape), ((rcm[0] + lcm[0]) / 2, (rcm[1] + lcm[1]) / 2))
+
+
+def test_thumbnails_revalidate_and_never_go_stale(client, mount_env):
+    from phototag import blur_jobs
+
+    r = client.post("/api/blur/jobs", json={"nc_path": "Album/a.png"})
+    blur_jobs.run_blur_job(connect(), r.json["job"]["id"])
+    url = "/api/browse/thumb?nc_path=Album/a.ai-blurred.png"
+    first = client.get(url)
+    assert first.status_code == 200 and "max-age" not in first.headers["Cache-Control"]
+    assert "no-cache" in first.headers["Cache-Control"] and first.headers["ETag"]
+    again = client.get(url, headers={"If-None-Match": first.headers["ETag"]})
+    assert again.status_code == 304
+    jid = client.post("/api/blur/jobs", json={"nc_path": "Album/a.png"}).json["job"]["id"]
+    blur_jobs.run_blur_job(connect(), jid)
+    row = connect().execute("SELECT id FROM images WHERE path='Album/a.ai-blurred.png'").fetchone()
+    con = connect()
+    con.execute("UPDATE images SET thumb=? WHERE id=?", (b"\xff\xd8different", row["id"]))
+    con.commit()
+    changed = client.get(url, headers={"If-None-Match": first.headers["ETag"]})
+    assert changed.status_code == 200 and changed.headers["ETag"] != first.headers["ETag"]
+
+
+def test_browse_items_carry_a_content_version_for_the_thumbnail_url(client, mount_env):
+    from phototag import blur_jobs
+
+    blur_jobs.run_blur_job(connect(), client.post("/api/blur/jobs", json={"nc_path": "Album/a.png"}).json["job"]["id"])
+    items = {i["nc_path"]: i for i in client.get("/api/browse?folder=Album&filter=all").json["items"]}
+    copy = items["Album/a.ai-blurred.png"]
+    assert len(copy["thumb_v"]) == 12 and copy["thumb_v"] != items["Album/a.png"]["thumb_v"]
+    js = (Path(__file__).resolve().parent.parent / "phototag/static/admin/admin.js").read_text(encoding="utf-8")
+    assert "item.thumb_v" in js and '"&v="' in js
+
+
+# ---------------------------------------------------------------- 0.6.6: detection in 4 orientations
+
+def test_unrotate_maps_points_back_for_every_rotation():
+    w, h = 40, 30
+    base = np.zeros((h, w, 3), np.uint8)
+    px, py = 12, 7
+    base[py, px] = 255
+    for code, k in ((cv2.ROTATE_90_CLOCKWISE, 90), (cv2.ROTATE_180, 180), (cv2.ROTATE_90_COUNTERCLOCKWISE, 270)):
+        rot = cv2.rotate(base, code)
+        ys, xs = np.where(rot[:, :, 0] == 255)
+        ox, oy = fb._unrotate_point(xs[0] + 0.5, ys[0] + 0.5, k, w, h)
+        assert abs(ox - (px + 0.5)) < 1.01 and abs(oy - (py + 0.5)) < 1.01, k
+
+
+def _bare_detector(passes):
+    """FaceDetector without a model; _raw_detect answers per pass (0, 90, 180, 270 degrees)."""
+    det = object.__new__(fb.FaceDetector)
+    det._cv2 = cv2
+    calls = []
+
+    def raw(bgr, max_side=None, min_score=None):
+        calls.append((bgr.shape[:2], min_score))
+        return list(passes[len(calls) - 1])
+
+    det._raw_detect = raw
+    det.calls = calls
+    return det
+
+
+def test_sideways_face_is_taken_from_the_pass_where_it_is_upright(monkeypatch):
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_SCORE", "0.35")
+    w, h = 200, 100
+    wrong = fb.FaceBox(50, 20, 40, 50, 0.6, landmarks=((55, 30), (85, 30), (70, 45), (58, 60), (82, 60)))
+    right_in_rot = fb.FaceBox(30, 55, 50, 40, 0.95, landmarks=((38, 60), (38, 90), (52, 75), (65, 62), (65, 88)))
+    det = _bare_detector([[wrong], [right_in_rot], [], []])
+    faces = det.detect(np.zeros((h, w, 3), np.uint8))
+    assert len(faces) == 1 and faces[0].score == 0.95
+    assert faces[0].landmarks[0] == fb._unrotate_point(38, 60, 90, w, h)
+    assert [c[0] for c in det.calls] == [(100, 200), (200, 100), (100, 200), (200, 100)]
+    assert det.calls[0][1] is None and all(c[1] >= 0.6 for c in det.calls[1:])
+
+
+def test_rotation_passes_can_be_turned_off(monkeypatch):
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_ROTATE", "0")
+    det = _bare_detector([[], [], [], []])
+    det.detect(np.zeros((50, 50, 3), np.uint8))
+    assert len(det.calls) == 1
+
+
+def test_merge_keeps_separate_faces_and_drops_duplicates():
+    a = fb.FaceBox(10, 10, 50, 60, 0.9)
+    dup = fb.FaceBox(14, 12, 48, 58, 0.7)
+    other = fb.FaceBox(200, 20, 50, 60, 0.8)
+    merged = fb._merge_faces([dup, other, a])
+    assert len(merged) == 2 and a in merged and other in merged
+
+
+@pytest.mark.skipif(not MODEL or not Path(MODEL).is_file(), reason="PHOTOTAG_FACEBLUR_MODEL (YuNet) nicht gesetzt")
+def test_real_detector_gives_right_landmarks_for_a_sideways_face(monkeypatch):
+    skimage_data = pytest.importorskip("skimage.data")
+    img = cv2.cvtColor(skimage_data.astronaut(), cv2.COLOR_RGB2BGR)
+    sideways = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+    det = fb.FaceDetector()
+    faces = det.detect(sideways)
+    assert len(faces) == 1
+    re, le = faces[0].landmarks[:2]
+    assert abs(le[1] - re[1]) > abs(le[0] - re[0]) * 2

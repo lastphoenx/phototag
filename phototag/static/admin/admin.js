@@ -102,8 +102,12 @@
     img.loading = "lazy";
   }
 
-  async function loadThumbNc(img, ncPath) {
-    img.src = "/api/browse/thumb?nc_path=" + encodeURIComponent(ncPath);
+  async function loadThumbNc(img, ncPath, version) {
+    img.src =
+      "/api/browse/thumb?nc_path=" +
+      encodeURIComponent(ncPath) +
+      "&v=" +
+      encodeURIComponent(version || "");
     img.loading = "lazy";
   }
 
@@ -634,7 +638,7 @@
 
     const img = document.createElement("img");
     img.alt = item.nc_path;
-    loadThumbNc(img, item.nc_path);
+    loadThumbNc(img, item.nc_path, item.thumb_v);
 
     const body = document.createElement("div");
     body.className = "card-body";
