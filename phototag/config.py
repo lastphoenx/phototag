@@ -129,6 +129,15 @@ def telegram_chat_id() -> str:
     return os.getenv("PHOTOTAG_TELEGRAM_CHAT_ID", "").strip()
 
 
+def telegram_upload_timeout_sec() -> int:
+    """Upload vom Mount (rclone) kann dauern — Default wie gunicorn (600s)."""
+    raw = os.getenv("PHOTOTAG_TELEGRAM_UPLOAD_TIMEOUT", "600").strip()
+    try:
+        return max(30, min(3600, int(raw)))
+    except ValueError:
+        return 600
+
+
 def admin_token() -> str:
     """Optional API-Token (Header); Login primär über User/Passwort."""
     return os.getenv("PHOTOTAG_ADMIN_TOKEN", "").strip()

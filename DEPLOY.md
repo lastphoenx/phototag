@@ -72,7 +72,10 @@ CSS/JS im Python-Paket (kein CDN). **Kein SSH-Tunnel:** CT im LAN, Browser auf *
 Originaldatei vom Mount an einen Chat senden (Weiterleiten in der Telegram-App). In **`phototag.env`** (chmod 600):
 
 - **`PHOTOTAG_TELEGRAM_BOT_TOKEN`** — Bot von @BotFather
-- **`PHOTOTAG_TELEGRAM_CHAT_ID`** — Ziel: **Saved Messages** = deine numerische User-ID (z. B. via @userinfobot), oder Gruppen-/Kanal-ID für eine Save-Inbox
+- **`PHOTOTAG_TELEGRAM_CHAT_ID`** — Ziel: deine User-ID → Privatchat mit dem Bot; Gruppen-ID (`-100…`) → Gruppe
+- Optional **`PHOTOTAG_TELEGRAM_UPLOAD_TIMEOUT`** — Default 600 s (grosses Video über rclone)
+
+**Ablauf:** Kein separater Download nach `/opt/phototag` — die Datei wird von **`PHOTOTAG_SCAN_ROOT`** (rclone/WebDAV) gelesen und an Telegram hochgeladen (wie KI-Tagging den Mount nutzt). Telegram-Bot-Limit **50 MB** pro Datei; groessere MOV/JPG schlagen fehl (Fehler in der WebUI-Statuszeile). rclone-VFS-Cache kann temporaer Platz belegen — phototag legt keine Kopie dauerhaft ab.
 
 Einmal **`/start`** an den Bot schicken (Privatchat), sonst liefert die API oft „chat not found“. Danach **`systemctl restart phototag-admin.service`**. Button **→ Telegram** erscheint nur wenn beide Keys gesetzt sind.
 

@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.20
+
+- **Telegram:** Upload-Timeout Default 600 s; klare Fehlermeldung ab 50 MB (Bot-Limit); DEPLOY erklaert Mount-Direct-Read (kein Dauer-Cache in `/opt/phototag`).
+
 ## 0.5.19
 
 - **Browse → Telegram:** optional `PHOTOTAG_TELEGRAM_BOT_TOKEN` + `PHOTOTAG_TELEGRAM_CHAT_ID` — Button sendet Original (Foto/Video) vom Mount an den Ziel-Chat (Saved Messages / Gruppe).
