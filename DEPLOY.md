@@ -73,9 +73,11 @@ Originaldatei vom Mount an einen Chat senden (Weiterleiten in der Telegram-App).
 
 - **`PHOTOTAG_TELEGRAM_BOT_TOKEN`** — Bot von @BotFather
 - **`PHOTOTAG_TELEGRAM_CHAT_ID`** — Ziel: deine User-ID → Privatchat mit dem Bot; Gruppen-ID (`-100…`) → Gruppe
-- Optional **`PHOTOTAG_TELEGRAM_UPLOAD_TIMEOUT`** — Default 600 s (grosses Video über rclone)
+- Optional **`PHOTOTAG_TELEGRAM_UPLOAD_TIMEOUT`** — Default 600 s (Upload)
 
-**Ablauf:** Kein separater Download nach `/opt/phototag` — die Datei wird von **`PHOTOTAG_SCAN_ROOT`** (rclone/WebDAV) gelesen und an Telegram hochgeladen (wie KI-Tagging den Mount nutzt). Telegram-Bot-Limit **50 MB** pro Datei; groessere MOV/JPG schlagen fehl (Fehler in der WebUI-Statuszeile). rclone-VFS-Cache kann temporaer Platz belegen — phototag legt keine Kopie dauerhaft ab.
+**Grosse Videos (> 50 MB Bot-Limit):** mit **`PHOTOTAG_TELEGRAM_COMPRESS=1`** — zuerst **Staging** (`copy` Mount → `/tmp`), **ffmpeg** lokal auf CT, Send, Temp-Dateien löschen. Optional: `PHOTOTAG_TELEGRAM_STAGING_MAX_MB` (Default 600), `PHOTOTAG_TELEGRAM_COMPRESS_TARGET_MB` (48), `PHOTOTAG_TELEGRAM_COMPRESS_TIMEOUT` (1800 s). **`ffmpeg`** auf dem CT nötig.
+
+**Kleine Dateien (≤ 50 MB):** weiterhin direkt vom Mount, kein Dauer-Cache unter `/opt/phototag`.
 
 Einmal **`/start`** an den Bot schicken (Privatchat), sonst liefert die API oft „chat not found“. Danach **`systemctl restart phototag-admin.service`**. Button **→ Telegram** erscheint nur wenn beide Keys gesetzt sind.
 

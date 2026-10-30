@@ -395,7 +395,13 @@
               caption: (capArea && capArea.value.trim()) || nc,
             }),
           });
-          setStatus("Telegram OK: " + nc + " (msg " + (res.message_id || "?") + ")");
+          setStatus(
+          "Telegram OK: " +
+            nc +
+            (res.compressed ? " (komprimiert)" : "") +
+            " msg " +
+            (res.message_id || "?")
+        );
           if (card) flashActionOk(card, tgBtn, "Gesendet ✓", "→ Telegram");
         });
       } catch (e) {

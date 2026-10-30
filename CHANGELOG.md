@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.5.22
+
+- **Telegram grosse Videos:** optional `PHOTOTAG_TELEGRAM_COMPRESS=1` — Staging nach `/tmp`, ffmpeg, Send, Temp löschen (Bot-Limit 50 MB).
+
 ## 0.5.21
 
 - **WebUI Telegram:** Sichtbarer Upload (Karten-Overlay, Statuszeile, Fehler am Button statt nur kurzes Blinken).

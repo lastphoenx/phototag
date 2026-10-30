@@ -10,6 +10,7 @@ import urllib.request
 
 from phototag.cli import IMAGE_EXTS, VIDEO_EXTS
 from phototag.config import telegram_bot_token, telegram_chat_id, telegram_upload_timeout_sec
+from phototag.config import telegram_max_send_bytes
 
 # Bot API: sendDocument/sendPhoto practical limit (bytes)
 TELEGRAM_BOT_FILE_MAX_BYTES = 50 * 1024 * 1024
@@ -51,10 +52,11 @@ def send_media_to_telegram(path: Path, *, caption: str = "") -> dict:
     if not path.is_file():
         raise FileNotFoundError(str(path))
     size = path.stat().st_size
-    if size > TELEGRAM_BOT_FILE_MAX_BYTES:
+    limit = min(TELEGRAM_BOT_FILE_MAX_BYTES, telegram_max_send_bytes())
+    if size > limit:
         mb = size / (1024 * 1024)
         raise RuntimeError(
-            f"Datei zu gross fuer Telegram-Bot ({mb:.1f} MB, Limit 50 MB): {path.name}"
+            f"Datei zu gross fuer Telegram-Bot ({mb:.1f} MB, Limit {limit // (1024*1024)} MB): {path.name}"
         )
     ext = path.suffix.lower()
     cap = (caption or "")[:1024]

@@ -325,6 +325,7 @@ def forward_mount_media_to_telegram(
     *,
     caption: str = "",
 ) -> dict[str, Any]:
+    from phototag.telegram_compress import cleanup_temps, prepare_media_for_telegram
     from phototag.telegram_forward import send_media_to_telegram
 
     if not mount_accessible():
@@ -333,8 +334,12 @@ def forward_mount_media_to_telegram(
     if not physical.is_file():
         raise FileNotFoundError(f"Datei nicht auf Mount: {nc_rel}")
     cap = (caption or "").strip() or nc_rel
-    sent = send_media_to_telegram(physical, caption=cap)
-    return {"ok": True, "nc_path": nc_rel, **sent}
+    send_path, temps, meta = prepare_media_for_telegram(physical)
+    try:
+        sent = send_media_to_telegram(send_path, caption=cap)
+    finally:
+        cleanup_temps(temps)
+    return {"ok": True, "nc_path": nc_rel, **sent, **meta}
 
 
 def thumb_bytes_for_nc(con: sqlite3.Connection, nc_rel: str) -> bytes | None:

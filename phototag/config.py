@@ -138,6 +138,64 @@ def telegram_upload_timeout_sec() -> int:
         return 600
 
 
+def _env_bool(key: str, default: bool = False) -> bool:
+    raw = os.getenv(key, "1" if default else "0").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def _env_int_mb(key: str, default_mb: int) -> int:
+    raw = os.getenv(key, "").strip()
+    if not raw:
+        return default_mb * 1024 * 1024
+    try:
+        if raw.isdigit():
+            return max(1, int(raw)) * 1024 * 1024
+        return max(1, int(float(raw)))
+    except ValueError:
+        return default_mb * 1024 * 1024
+
+
+def _env_int_sec(key: str, default: int) -> int:
+    raw = os.getenv(key, str(default)).strip()
+    try:
+        return max(30, min(7200, int(raw)))
+    except ValueError:
+        return default
+
+
+def telegram_max_send_bytes() -> int:
+    return _env_int_mb("PHOTOTAG_TELEGRAM_MAX_MB", 50)
+
+
+def telegram_compress_enabled() -> bool:
+    return _env_bool("PHOTOTAG_TELEGRAM_COMPRESS", False)
+
+
+def telegram_compress_target_bytes() -> int:
+    return _env_int_mb("PHOTOTAG_TELEGRAM_COMPRESS_TARGET_MB", 48)
+
+
+def telegram_compress_audio() -> bool:
+    return _env_bool("PHOTOTAG_TELEGRAM_COMPRESS_AUDIO", True)
+
+
+def telegram_temp_dir() -> Path:
+    raw = os.getenv("PHOTOTAG_TELEGRAM_TEMP_DIR", "/tmp").strip() or "/tmp"
+    return Path(raw)
+
+
+def telegram_staging_max_bytes() -> int:
+    return _env_int_mb("PHOTOTAG_TELEGRAM_STAGING_MAX_MB", 600)
+
+
+def telegram_staging_timeout_sec() -> int:
+    return _env_int_sec("PHOTOTAG_TELEGRAM_STAGING_TIMEOUT", 3600)
+
+
+def telegram_compress_timeout_sec() -> int:
+    return _env_int_sec("PHOTOTAG_TELEGRAM_COMPRESS_TIMEOUT", 1800)
+
+
 def admin_token() -> str:
     """Optional API-Token (Header); Login primär über User/Passwort."""
     return os.getenv("PHOTOTAG_ADMIN_TOKEN", "").strip()
