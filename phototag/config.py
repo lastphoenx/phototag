@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -323,15 +324,84 @@ def faceblur_margin() -> float:
     return _env_float("PHOTOTAG_FACEBLUR_MARGIN", 0.4, 0.0, 1.5)
 
 
-FACEBLUR_REGIONS = frozenset(
-    ("face", "tight", "eyes", "mouth", "eyes_mouth", "eyes_mouth_ears")
-)
+FACEBLUR_PARTS = frozenset(("face", "tight", "eyes", "eyebar", "nose", "mouth", "ears", "chin", "forehead"))
+FACEBLUR_ALIASES = {"eyes_mouth": ("eyes", "mouth"), "eyes_mouth_ears": ("eyes", "mouth", "ears")}
+FACEBLUR_REGIONS = FACEBLUR_PARTS | frozenset(FACEBLUR_ALIASES)  # accepted names
+BOX_PARTS = frozenset(("face", "tight"))  # plain boxes (no landmarks needed)
+
+
+def parse_region_names(raw: str) -> tuple[list[str], list[str]]:
+    """'eyebar, nose+mouth' -> (['eyebar','nose','mouth'], unknown names). Aliases are expanded."""
+    parts: list[str] = []
+    unknown: list[str] = []
+    raw = (raw or "").split("#", 1)[0]  # KEY=a,b   # comment (systemd keeps the comment text)
+    for tok in re.split(r"[,+\s]+", raw.strip().lower()):
+        if not tok:
+            continue
+        if tok in FACEBLUR_ALIASES:
+            names = list(FACEBLUR_ALIASES[tok])
+        elif tok in FACEBLUR_PARTS:
+            names = [tok]
+        else:
+            unknown.append(tok)
+            continue
+        for n in names:
+            if n not in parts:
+                parts.append(n)
+    return parts, unknown
+
+
+FACEBLUR_FILLS = ("none", "bridge", "hull")
+
+
+def faceblur_fill() -> str:
+    """none = separate bars; bridge = close the gaps between neighbouring parts; hull = one convex shape."""
+    raw = os.getenv("PHOTOTAG_FACEBLUR_FILL", "none").split("#", 1)[0].strip().lower()
+    return raw if raw in FACEBLUR_FILLS else "none"
+
+
+def faceblur_fill_gap() -> float:
+    """bridge: largest gap that gets closed, in eye distances."""
+    return _env_float("PHOTOTAG_FACEBLUR_FILL_GAP", 1.5, 0.2, 4.0)
+
+
+def faceblur_part_wh(part: str) -> tuple[float, float]:
+    """Optional width/height factors per part: PHOTOTAG_FACEBLUR_SCALE_<PART>_W / _H."""
+    return (
+        _env_float(f"PHOTOTAG_FACEBLUR_SCALE_{part.upper()}_W", 1.0, 0.3, 3.0),
+        _env_float(f"PHOTOTAG_FACEBLUR_SCALE_{part.upper()}_H", 1.0, 0.3, 3.0),
+    )
+
+
+def faceblur_scale(part: str) -> float:
+    """Per-part size factor PHOTOTAG_FACEBLUR_SCALE_<PART> (nose, mouth, ears, chin, forehead)."""
+    return _env_float(f"PHOTOTAG_FACEBLUR_SCALE_{part.upper()}", 1.0, 0.3, 3.0)
+
+
+def faceblur_bar_up() -> float:
+    """eyebar: height above the eye line in eye distances (eyebrows)."""
+    return _env_float("PHOTOTAG_FACEBLUR_BAR_UP", 0.45, 0.1, 2.0)
+
+
+def faceblur_bar_down() -> float:
+    """eyebar: height below the eye line in eye distances (eye bags)."""
+    return _env_float("PHOTOTAG_FACEBLUR_BAR_DOWN", 0.35, 0.1, 2.0)
+
+
+def faceblur_bar_side() -> float:
+    """eyebar: length factor; 1.0 = from face edge to face edge (about ear to ear)."""
+    return _env_float("PHOTOTAG_FACEBLUR_BAR_SIDE", 1.0, 0.5, 2.0)
+
+
+def faceblur_regions() -> list[str]:
+    """Parts to blur, e.g. PHOTOTAG_FACEBLUR_REGION=eyebar,nose,mouth (unknown names are ignored)."""
+    parts, _ = parse_region_names(os.getenv("PHOTOTAG_FACEBLUR_REGION", "face"))
+    return parts or ["face"]
 
 
 def faceblur_region() -> str:
-    """Where to blur: full face box, tight box, or YuNet landmark regions (eyes, mouth, ears approx.)."""
-    raw = os.getenv("PHOTOTAG_FACEBLUR_REGION", "face").strip().lower()
-    return raw if raw in FACEBLUR_REGIONS else "face"
+    """Effective region as text (parts joined by '+')."""
+    return "+".join(faceblur_regions())
 
 
 def faceblur_strength() -> float:
@@ -396,6 +466,8 @@ def read_phototag_env() -> dict[str, str]:
         val = val.strip()
         if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
             val = val[1:-1]
+        else:
+            val = re.split(r"\s+#", val, maxsplit=1)[0].strip()  # KEY=value   # comment
         out[key] = val
     return out
 
@@ -411,9 +483,76 @@ def load_phototag_env(*, override: bool = False) -> bool:
     return True
 
 
+def faceblur_settings_warnings() -> list[str]:
+    """Env values that are set but ignored (typo, comment text, out of range) — otherwise silent."""
+    warnings: list[str] = []
+    checks: tuple[tuple[str, str, float, float], ...] = (
+        ("PHOTOTAG_FACEBLUR_SCORE", "score", 0.2, 0.95),
+        ("PHOTOTAG_FACEBLUR_MARGIN", "margin", 0.0, 1.5),
+        ("PHOTOTAG_FACEBLUR_STRENGTH", "strength", 0.2, 4.0),
+        ("PHOTOTAG_FACEBLUR_BAR_UP", "bar_up", 0.1, 2.0),
+        ("PHOTOTAG_FACEBLUR_BAR_DOWN", "bar_down", 0.1, 2.0),
+        ("PHOTOTAG_FACEBLUR_BAR_SIDE", "bar_side", 0.5, 2.0),
+    )
+    for key, label, lo, hi in checks:
+        raw = os.getenv(key, "").strip()
+        if not raw:
+            continue
+        try:
+            val = float(raw)
+        except ValueError:
+            warnings.append(f"{key}={raw!r} ist keine Zahl -> Standardwert ({label})")
+            continue
+        if not lo <= val <= hi:
+            warnings.append(f"{key}={raw} ausserhalb {lo:g}..{hi:g} -> begrenzt")
+    raw_region = os.getenv("PHOTOTAG_FACEBLUR_REGION", "").strip()
+    if raw_region:
+        parts, unknown = parse_region_names(raw_region)
+        allowed = ", ".join(sorted(FACEBLUR_REGIONS))
+        if unknown and not parts:
+            warnings.append(f"PHOTOTAG_FACEBLUR_REGION={raw_region!r} unbekannt -> face (erlaubt: {allowed}; mehrere mit Komma)")
+        elif unknown:
+            warnings.append(f"PHOTOTAG_FACEBLUR_REGION: {', '.join(unknown)} unbekannt und ignoriert (erlaubt: {allowed})")
+    raw_fill = os.getenv("PHOTOTAG_FACEBLUR_FILL", "").split("#", 1)[0].strip().lower()
+    if raw_fill and raw_fill not in FACEBLUR_FILLS:
+        warnings.append(f"PHOTOTAG_FACEBLUR_FILL={raw_fill!r} unbekannt -> none (erlaubt: {', '.join(FACEBLUR_FILLS)})")
+    raw_gap = os.getenv("PHOTOTAG_FACEBLUR_FILL_GAP", "").split("#", 1)[0].strip()
+    if raw_gap:
+        try:
+            float(raw_gap)
+        except ValueError:
+            warnings.append(f"PHOTOTAG_FACEBLUR_FILL_GAP={raw_gap!r} ist keine Zahl -> 1.5")
+    for part in ("nose", "mouth", "ears", "chin", "forehead"):
+        for suffix in ("", "_W", "_H"):
+            key = f"PHOTOTAG_FACEBLUR_SCALE_{part.upper()}{suffix}"
+            raw = os.getenv(key, "").split("#", 1)[0].strip()
+            if not raw:
+                continue
+            try:
+                val = float(raw)
+            except ValueError:
+                warnings.append(f"{key}={raw!r} ist keine Zahl -> 1.0")
+                continue
+            if not 0.3 <= val <= 3.0:
+                warnings.append(f"{key}={raw} ausserhalb 0.3..3 -> begrenzt")
+    mode = os.getenv("PHOTOTAG_FACEBLUR_MODE", "").strip().lower()
+    if mode and mode not in ("blur", "pixel"):
+        warnings.append(f"PHOTOTAG_FACEBLUR_MODE={mode!r} unbekannt -> blur")
+    return warnings
+
+
 def faceblur_settings_summary() -> str:
     """Effective Face-Blur tuning (for logs / job result)."""
-    return (
+    base = (
         f"region={faceblur_region()} margin={faceblur_margin():g} strength={faceblur_strength():g} "
         f"score={faceblur_score():g} mode={faceblur_mode()}"
     )
+    scales = [f"{p}={faceblur_scale(p):g}" for p in ("nose", "mouth", "ears", "chin", "forehead") if p in faceblur_regions() and faceblur_scale(p) != 1.0]
+    if scales:
+        base += " scale[" + " ".join(scales) + "]"
+    if faceblur_fill() != "none":
+        base += f" fill={faceblur_fill()}" + (f"(gap={faceblur_fill_gap():g})" if faceblur_fill() == "bridge" else "")
+    if "eyebar" in faceblur_regions():
+        base += f" bar_up={faceblur_bar_up():g} bar_down={faceblur_bar_down():g} bar_side={faceblur_bar_side():g}"
+    warn = faceblur_settings_warnings()
+    return base + (" | WARNUNG: " + "; ".join(warn) if warn else "")

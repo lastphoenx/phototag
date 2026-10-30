@@ -17,11 +17,21 @@ from pathlib import Path
 from typing import Any
 
 from phototag.config import (
+    faceblur_fill,
+    faceblur_fill_gap,
+    faceblur_part_wh,
+    BOX_PARTS,
+    parse_region_names,
+    faceblur_bar_down,
+    faceblur_bar_side,
+    faceblur_bar_up,
     faceblur_margin,
     faceblur_max_detect_side,
     faceblur_mode,
     faceblur_model_path,
     faceblur_region,
+    faceblur_regions,
+    faceblur_scale,
     faceblur_score,
     faceblur_settings_summary,
     faceblur_strength,
@@ -204,76 +214,164 @@ def _eye_boxes_from_bbox(b: FaceBox, width: int, height: int) -> list[tuple[int,
     ]
 
 
+Shape = tuple  # (x0, y0, x1, y1) or (x0, y0, x1, y1, polygon)
+
+
+class _Frame:
+    """Head coordinate frame from the five YuNet landmarks (or estimated from the box)."""
+
+    def __init__(self, b: FaceBox):
+        if b.landmarks:
+            self.re, self.le, self.nose, self.rcm, self.lcm = b.landmarks
+        else:  # estimate: eyes at 38 %, nose at 58 %, mouth corners at 78 % of the box
+            self.re = (b.x + b.w * 0.30, b.y + b.h * 0.38)
+            self.le = (b.x + b.w * 0.70, b.y + b.h * 0.38)
+            self.nose = (b.x + b.w * 0.50, b.y + b.h * 0.58)
+            self.rcm = (b.x + b.w * 0.36, b.y + b.h * 0.78)
+            self.lcm = (b.x + b.w * 0.64, b.y + b.h * 0.78)
+        dx, dy = self.le[0] - self.re[0], self.le[1] - self.re[1]
+        self.d = max(8.0, (dx * dx + dy * dy) ** 0.5)
+        ux, uy = dx / self.d, dy / self.d
+        if ux < 0:  # the axis has no direction; keep "down" pointing down for upright faces
+            ux, uy = -ux, -uy
+        self.u = (ux, uy)
+        self.n = (-uy, ux)  # unit normal, points down for an upright face
+        self.eye_mid = ((self.re[0] + self.le[0]) / 2.0, (self.re[1] + self.le[1]) / 2.0)
+        self.mouth_mid = ((self.rcm[0] + self.lcm[0]) / 2.0, (self.rcm[1] + self.lcm[1]) / 2.0)
+        mdx, mdy = self.lcm[0] - self.rcm[0], self.lcm[1] - self.rcm[1]
+        self.mouth_w = max(self.d * 0.4, (mdx * mdx + mdy * mdy) ** 0.5)
+        self.box = b
+
+    def at(self, c: tuple[float, float], along: float = 0.0, down: float = 0.0) -> tuple[float, float]:
+        """Point c moved ``along`` the eye axis and ``down`` the face normal (pixels)."""
+        return (c[0] + self.u[0] * along + self.n[0] * down, c[1] + self.u[1] * along + self.n[1] * down)
+
+
+def _rot_rect(fr: _Frame, c: tuple[float, float], half_len: float, up: float, down: float, width: int, height: int) -> Shape:
+    """Rectangle centred on c, half_len along the eye axis, ``up``/``down`` along the normal."""
+    pts = [fr.at(c, -half_len, -up), fr.at(c, half_len, -up), fr.at(c, half_len, down), fr.at(c, -half_len, down)]
+    poly = [(int(round(x)), int(round(y))) for x, y in pts]
+    x0, y0, x1, y1 = _clamp_rect(
+        min(p[0] for p in poly), min(p[1] for p in poly),
+        max(p[0] for p in poly) + 1, max(p[1] for p in poly) + 1, width, height,
+    )
+    return x0, y0, x1, y1, poly
+
+
+def eye_bar(b: FaceBox, margin: float, width: int, height: int) -> Shape:
+    """One bar from eye to eye, reaching to the ears, covering eyebrows (above) and eye bags (below)."""
+    m = max(0.0, float(margin))
+    fr = _Frame(b)
+    half_len = max(fr.d * 1.1, b.w * 0.5) * faceblur_bar_side() * (1.0 + m)
+    return _rot_rect(fr, fr.eye_mid, half_len, fr.d * (faceblur_bar_up() + m), fr.d * (faceblur_bar_down() + m), width, height)
+
+
+def _part_shapes(b: FaceBox, part: str, margin: float, width: int, height: int) -> list[Shape]:
+    m = max(0.0, float(margin))
+    if part == "face":
+        return [expand_box(b, margin, width, height)]
+    if part == "tight":
+        tight_m = min(margin, 0.22) if margin > 0 else 0.12
+        return [expand_box(b, tight_m, width, height)]
+    if part == "eyebar":
+        return [eye_bar(b, margin, width, height)]
+    fr = _Frame(b)
+    d = fr.d
+    sc = faceblur_scale(part)
+    wm, hm = faceblur_part_wh(part)  # optional extra width / height factor per part
+    pad = d * m * 0.5  # margin = extra room on every side, in half eye distances
+    if part == "eyes":  # two separate squares (needs real landmarks)
+        if not b.landmarks:
+            return _eye_boxes_from_bbox(b, width, height)  # type: ignore[return-value]
+        half = d * (0.10 + m * 0.40)
+        return [_square_at(fr.le[0], fr.le[1], half, width, height), _square_at(fr.re[0], fr.re[1], half, width, height)]
+    if part == "nose":
+        return [_rot_rect(fr, fr.nose, d * 0.34 * sc * wm + pad, d * 0.50 * sc * hm + pad, d * 0.22 * sc * hm + pad, width, height)]
+    if part == "mouth":
+        return [_rot_rect(fr, fr.mouth_mid, (fr.mouth_w / 2 + d * 0.20) * sc * wm + pad, d * 0.22 * sc * hm + pad, d * 0.30 * sc * hm + pad, width, height)]
+    if part == "ears":
+        out: list[Shape] = []
+        reach = max(b.w * 0.5, d * 0.95)
+        for sign in (-1.0, 1.0):
+            c = fr.at(fr.eye_mid, sign * reach, d * 0.50)
+            out.append(_rot_rect(fr, c, d * 0.22 * sc * wm + pad, d * 0.45 * sc * hm + pad, d * 0.55 * sc * hm + pad, width, height))
+        return out
+    if part == "chin":
+        length = max(d * 0.45, b.h * 0.20) * sc * hm
+        c = fr.at(fr.mouth_mid, 0.0, d * 0.32 + length / 2)
+        return [_rot_rect(fr, c, (fr.mouth_w / 2 + d * 0.25) * sc * wm + pad, length / 2 + pad, length / 2 + pad, width, height)]
+    if part == "forehead":
+        length = max(d * 0.35, b.h * 0.25) * sc * hm
+        c = fr.at(fr.eye_mid, 0.0, -(d * faceblur_bar_up() + length / 2))
+        return [_rot_rect(fr, c, d * 0.9 * sc * wm + pad, length / 2 + pad, length / 2 + pad, width, height)]
+    return [expand_box(b, margin, width, height)]
+
+
+def _shape_poly(item: Shape) -> list[tuple[int, int]]:
+    if len(item) > 4 and not hasattr(item[4], "shape"):
+        return list(item[4])
+    x0, y0, x1, y1 = item[:4]
+    return [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+
+
+def fill_shapes(b: FaceBox, shapes: list[Shape], mode: str, width: int, height: int) -> list[Shape]:
+    """Join separate parts into one shape. ``hull`` = convex hull of everything,
+    ``bridge`` = close the gaps between neighbouring parts along the face's vertical axis
+    (e.g. eye bar -> nose -> mouth), the cheeks beside narrower parts stay visible."""
+    cv2, np = _require_cv2()
+    if mode == "none" or len(shapes) < 2:
+        return shapes
+    polys = [_shape_poly(s) for s in shapes]
+    xs = [p[0] for poly in polys for p in poly]
+    ys = [p[1] for poly in polys for p in poly]
+    x0, y0 = max(0, min(xs)), max(0, min(ys))
+    x1, y1 = min(width, max(xs) + 1), min(height, max(ys) + 1)
+    if x1 <= x0 or y1 <= y0:
+        return shapes
+    mask = np.zeros((y1 - y0, x1 - x0), dtype=np.uint8)
+    for poly in polys:
+        cv2.fillConvexPoly(mask, np.array([(px - x0, py - y0) for px, py in poly], dtype=np.int32), 255)
+    if mode == "hull":
+        pts = cv2.findNonZero(mask)
+        hull = cv2.convexHull(pts)
+        mask = np.zeros_like(mask)
+        cv2.fillConvexPoly(mask, hull, 255)
+    else:  # bridge: vertical closing in the head's own (tilted) frame
+        fr = _Frame(b)
+        h, w = mask.shape
+        pad = int(np.hypot(h, w)) + 4
+        canvas = cv2.copyMakeBorder(mask, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0)
+        ch, cw = canvas.shape
+        angle = float(np.degrees(np.arctan2(fr.u[1], fr.u[0])))  # rotate so the eye axis is horizontal
+        rot = cv2.getRotationMatrix2D((cw / 2, ch / 2), angle, 1.0)
+        level = cv2.warpAffine(canvas, rot, (cw, ch), flags=cv2.INTER_NEAREST)
+        k = max(3, int(round(faceblur_fill_gap() * fr.d)))
+        level = cv2.morphologyEx(level, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (1, k)))
+        sliver = max(3, int(round(fr.d * 0.25)))  # hairline gaps between side-by-side parts
+        level = cv2.morphologyEx(level, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (sliver, 1)))
+        back = cv2.warpAffine(level, rot, (cw, ch), flags=cv2.INTER_NEAREST | cv2.WARP_INVERSE_MAP)
+        mask = np.where(back[pad:pad + h, pad:pad + w] > 0, 255, 0).astype(np.uint8)
+        mask = np.maximum(mask, np.where(canvas[pad:pad + h, pad:pad + w] > 0, 255, 0).astype(np.uint8))
+    return [(x0, y0, x1, y1, mask)]
+
+
 def boxes_for_face(
     b: FaceBox,
     region: str | None,
     margin: float,
     width: int,
     height: int,
-) -> list[tuple[int, int, int, int]]:
-    """Map PHOTOTAG_FACEBLUR_REGION to blur rectangles."""
-    reg = (region or faceblur_region()).strip().lower()
-    lm = b.landmarks
+) -> list[Shape]:
+    """Map PHOTOTAG_FACEBLUR_REGION (one or several parts) to blur shapes (rectangles / rotated bars)."""
+    from phototag.config import parse_region_names
 
-    if reg == "face":
-        return [expand_box(b, margin, width, height)]
-    if reg == "tight":
-        tight_m = min(margin, 0.22) if margin > 0 else 0.12
-        return [expand_box(b, tight_m, width, height)]
-
-    if reg in ("eyes", "mouth", "eyes_mouth", "eyes_mouth_ears") and not lm:
-        if reg == "eyes":
-            return _eye_boxes_from_bbox(b, width, height)
-        return [expand_box(b, min(margin, 0.25), width, height)]
-
-    assert lm is not None
-    re, le, nt, rcm, lcm = lm
-    eye_dist = max(8.0, ((re[0] - le[0]) ** 2 + (re[1] - le[1]) ** 2) ** 0.5)
-    m = max(0.0, float(margin))
-    eye_half = eye_dist * (0.10 + m * 0.40)
-    mouth_half = eye_dist * (0.18 + m * 0.45)
-
-    boxes: list[tuple[int, int, int, int]] = []
-
-    if reg in ("eyes", "eyes_mouth", "eyes_mouth_ears"):
-        boxes.append(_square_at(le[0], le[1], eye_half, width, height))
-        boxes.append(_square_at(re[0], re[1], eye_half, width, height))
-
-    if reg in ("mouth", "eyes_mouth", "eyes_mouth_ears"):
-        mx = (rcm[0] + lcm[0]) / 2
-        my = (rcm[1] + lcm[1] + nt[1]) / 3
-        boxes.append(_square_at(mx, my, mouth_half, width, height))
-
-    if reg == "eyes_mouth_ears":
-        ear_w = b.w * (0.08 + m * 0.18)
-        ear_h = b.h * (0.14 + m * 0.20)
-        ey = b.y + b.h * 0.38
-        boxes.append(_clamp_rect(int(b.x - ear_w * 0.9), int(ey), int(b.x + ear_w * 0.1), int(ey + ear_h), width, height))
-        boxes.append(
-            _clamp_rect(
-                int(b.x + b.w - ear_w * 0.1),
-                int(ey),
-                int(b.x + b.w + ear_w * 0.9),
-                int(ey + ear_h),
-                width,
-                height,
-            )
-        )
-
-    if reg == "mouth":
-        boxes = [
-            _square_at(
-                (rcm[0] + lcm[0]) / 2,
-                (rcm[1] + lcm[1] + nt[1]) / 3,
-                mouth_half,
-                width,
-                height,
-            )
-        ]
-
-    if not boxes:
-        return [expand_box(b, margin, width, height)]
-    return boxes
+    parts = parse_region_names(region)[0] if region else faceblur_regions()
+    shapes: list[Shape] = []
+    for part in parts or ["face"]:
+        shapes.extend(_part_shapes(b, part, margin, width, height))
+    if not set(parts) & BOX_PARTS:  # box regions need no joining
+        shapes = fill_shapes(b, shapes, faceblur_fill(), width, height)
+    return shapes
 
 
 def apply_blur(
@@ -288,21 +386,40 @@ def apply_blur(
     mode = mode or faceblur_mode()
     s = faceblur_strength() if strength is None else strength
     s = max(0.2, min(4.0, float(s)))
-    for x0, y0, x1, y1 in boxes:
+    for item in boxes:
+        x0, y0, x1, y1 = item[:4]
+        poly = item[4] if len(item) > 4 else None
         roi = bgr[y0:y1, x0:x1]
         rh, rw = roi.shape[:2]
         if rh < 2 or rw < 2:
             continue
         if mode == "pixel":
-            cells = max(3, int(round(14.0 / s)))
-            small = cv2.resize(roi, (max(1, min(cells, rw)), max(1, min(cells, rh))), interpolation=cv2.INTER_AREA)
-            bgr[y0:y1, x0:x1] = cv2.resize(small, (rw, rh), interpolation=cv2.INTER_NEAREST)
+            if max(rw, rh) > 1.8 * min(rw, rh):
+                # elongated (eye bar): cell size from the SHORT side, else the eyes stay readable
+                short_cells = max(2, int(round(3.0 / s)))
+                cell = max(1.0, min(rw, rh) / short_cells)
+                cx_cells, cy_cells = max(1, int(round(rw / cell))), max(1, int(round(rh / cell)))
+            else:
+                cx_cells = cy_cells = max(3, int(round(14.0 / s)))
+            small = cv2.resize(roi, (max(1, min(cx_cells, rw)), max(1, min(cy_cells, rh))), interpolation=cv2.INTER_AREA)
+            result = cv2.resize(small, (rw, rh), interpolation=cv2.INTER_NEAREST)
         else:
             div = max(2, int(round(6.0 / s)))
             small = cv2.resize(roi, (max(2, rw // div), max(2, rh // div)), interpolation=cv2.INTER_AREA)
             sigma = max(1.0, max(small.shape[:2]) / 4.0 * s)
             small = cv2.GaussianBlur(small, (0, 0), sigma)
-            bgr[y0:y1, x0:x1] = cv2.resize(small, (rw, rh), interpolation=cv2.INTER_CUBIC)
+            result = cv2.resize(small, (rw, rh), interpolation=cv2.INTER_CUBIC)
+        if poly is None:
+            bgr[y0:y1, x0:x1] = result
+        else:  # rotated bar or filled shape: replace only the pixels inside it
+            _, np = _require_cv2()
+            if hasattr(poly, "shape"):
+                mask = poly[: rh, : rw]
+            else:
+                mask = np.zeros((rh, rw), dtype=np.uint8)
+                cv2.fillConvexPoly(mask, np.array([(px - x0, py - y0) for px, py in poly], dtype=np.int32), 255)
+            region = bgr[y0:y1, x0:x1]
+            region[mask > 0] = result[mask > 0]
 
 
 def blur_frame(
@@ -328,6 +445,51 @@ def blur_frame(
 
 
 # ---------------------------------------------------------------- images
+
+def blur_area_share(faces: list[FaceBox], width: int, height: int, *, margin: float | None = None, region: str | None = None) -> float:
+    """Share of the image covered by blur boxes (overlaps counted once via a mask)."""
+    _, np = _require_cv2()
+    m = faceblur_margin() if margin is None else margin
+    cv2, _ = _require_cv2()
+    mask = np.zeros((height, width), dtype=np.uint8)
+    for f in faces:
+        for item in boxes_for_face(f, region or faceblur_region(), m, width, height):
+            x0, y0, x1, y1 = item[:4]
+            if len(item) > 4 and hasattr(item[4], "shape"):
+                sub_mask = item[4][: y1 - y0, : x1 - x0] > 0
+                mask[y0:y0 + sub_mask.shape[0], x0:x0 + sub_mask.shape[1]][sub_mask] = 1
+            elif len(item) > 4:
+                cv2.fillConvexPoly(mask, np.array(item[4], dtype=np.int32), 1)
+            else:
+                mask[y0:y1, x0:x1] = 1
+    return float(mask.mean())
+
+
+def quality_notes(area_share: float, leaks: int | None, region: str | None = None) -> list[str]:
+    """Human-readable hints for the review step."""
+    reg = region or faceblur_region()
+    notes: list[str] = []
+    box_only = set(parse_region_names(reg)[0] or ["face"]) <= BOX_PARTS
+    if box_only and area_share > 0.25:
+        notes.append(
+            f"WARNUNG: Blur deckt {area_share:.0%} des Bildes ab (grosses Gesicht, Nahaufnahme?) — "
+            "PHOTOTAG_FACEBLUR_REGION/MARGIN prüfen"
+        )
+    elif area_share:
+        notes.append(f"Blur-Fläche {area_share:.1%}")
+    if not box_only and "face" not in parse_region_names(reg)[0]:
+        notes.append(f"Region {reg}: übrige Gesichtsteile bleiben sichtbar")
+    if leaks:
+        notes.append(f"WARNUNG: in der Kopie noch {leaks} Gesicht(er) erkennbar — prüfen")
+    return notes
+
+
+def count_leaks(detector: "FaceDetector", bgr_frames: list[Any]) -> int:
+    """Faces still detectable after blurring (only meaningful for region face/tight)."""
+    if not set(faceblur_regions()) <= BOX_PARTS:
+        return 0
+    return sum(len(detector.detect(f, max_side=1280)) for f in bgr_frames)
+
 
 def blur_image_file(
     src: Path,
@@ -370,8 +532,10 @@ def blur_image_file(
     else:
         raise FaceBlurError(f"Ausgabeformat nicht unterstützt: {ext}")
     h, w = bgr.shape[:2]
-    settings = faceblur_settings_summary()
-    return BlurResult(faces=len(faces), width=w, height=h, kind="image", notes=[settings, f"blur_boxes={n}"])
+    share = blur_area_share(faces, w, h)
+    leaks = count_leaks(det, [np.ascontiguousarray(np.asarray(Image.open(dst).convert("RGB"))[:, :, ::-1])])
+    notes = [faceblur_settings_summary(), f"blur_boxes={n}", *quality_notes(share, leaks)]
+    return BlurResult(faces=len(faces), width=w, height=h, kind="image", notes=notes)
 
 
 # ---------------------------------------------------------------- video
@@ -456,7 +620,8 @@ def blur_video_file(
     _, np = _require_cv2()
     det = detector or FaceDetector()
     w, h, fps, duration = probe_display(src)
-    stride = faceblur_video_stride()
+    # small landmark regions (eyes, mouth) must follow the face every frame; boxes can skip
+    stride = faceblur_video_stride() if set(faceblur_regions()) <= BOX_PARTS else 1
     hold = stride * 2
     deadline = time.time() + faceblur_video_timeout_sec()
     est_frames = max(1, int(duration * fps)) if duration else 0
@@ -529,13 +694,31 @@ def blur_video_file(
         raise FaceBlurError(f"Ausgabe-Dauer weicht ab ({out_dur:.1f}s statt {duration:.1f}s)")
     if progress:
         progress(1.0)
+    leaks = 0
+    if set(faceblur_regions()) <= BOX_PARTS:
+        import cv2
+
+        cap = cv2.VideoCapture(str(dst))
+        i = 0
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            if i % 10 == 0:
+                leaks += len(det.detect(frame, max_side=1280))
+            i += 1
+        cap.release()
     return BlurResult(
         faces=max_faces,
         width=w,
         height=h,
         kind="video",
         frames=total,
-        notes=[faceblur_settings_summary(), f"{blurred_frames}/{total} Frames mit Blur"],
+        notes=[
+            faceblur_settings_summary(),
+            f"{blurred_frames}/{total} Frames mit Blur",
+            *quality_notes(0.0, leaks),
+        ],
     )
 
 

@@ -775,7 +775,11 @@
     const blurNote = document.createElement("div");
     blurNote.className = "blur-note";
     if (item.is_blur_copy) {
-      blurNote.textContent = "AI-Blur-Kopie (" + (item.blur_faces || 0) + " Gesicht(er)) — Original unverändert";
+      blurNote.textContent =
+        "AI-Blur-Kopie (" + (item.blur_faces || 0) + " Gesicht(er)) — Original unverändert" +
+        (item.blur_info ? "\n" + item.blur_info.replace(/^faceblur:faces=\d+;?\s*/, "") : "");
+      blurNote.style.whiteSpace = "pre-wrap";
+      if (/WARNUNG/.test(item.blur_info || "")) blurNote.classList.add("blur-warn");
     } else if (item.blur_copies && item.blur_copies.length) {
       blurNote.textContent =
         "Blur-Kopie: " + item.blur_copies.map((c) => c.nc_path + " [" + c.status + "]").join(", ");

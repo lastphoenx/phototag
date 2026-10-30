@@ -2,6 +2,28 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.6.5
+
+- **Face-Blur: Lücken zwischen den Teilen füllen.** `PHOTOTAG_FACEBLUR_FILL=none` (Standard, einzelne Balken) | `bridge` (Lücken zwischen übereinanderliegenden Teilen werden geschlossen, z. B. Augenbalken, Nase, Mund zu einer Säule; Wangen neben schmaleren Teilen bleiben sichtbar) | `hull` (eine einzige konvexe Fläche um alle gewählten Teile). `PHOTOTAG_FACEBLUR_FILL_GAP` (1.5 Augenabstände) begrenzt die grösste Lücke bei `bridge`. Folgt der Kopfneigung, gilt für Bilder und Videos.
+- Breite und Höhe je Teil getrennt: `PHOTOTAG_FACEBLUR_SCALE_<TEIL>_W` und `_H` (zusätzlich zu `SCALE_<TEIL>`).
+
+## 0.6.4
+
+- **Face-Blur: Teile einzeln und kombinierbar.** `PHOTOTAG_FACEBLUR_REGION` nimmt jetzt eine Liste (Komma oder `+`): `eyebar`, `eyes`, `nose`, `mouth`, `ears`, `chin`, `forehead` sowie `face` und `tight`. Beispiel: `eyebar,nose,mouth`. Die Teile sind gedrehte Rechtecke, die der Kopfneigung folgen und sich nach dem Augenabstand richten; `PHOTOTAG_FACEBLUR_MARGIN` addiert Rand rundherum. Feinjustage je Teil: `PHOTOTAG_FACEBLUR_SCALE_NOSE|MOUTH|EARS|CHIN|FOREHEAD` (1.0).
+- Alte Namen bleiben gültig (`eyes_mouth` = `eyes,mouth`, `eyes_mouth_ears` = `eyes,mouth,ears`). Unbekannte Namen werden gemeldet und ignoriert.
+- Warnungen und Prüfungen (Blur-Fläche, Rest-Gesicht) richten sich nach den gewählten Teilen.
+
+## 0.6.3
+
+- **Face-Blur Region `eyebar`:** ein Balken von Auge zu Auge, etwa bis zu den Ohren, deckt Augenbrauen (oben) und Augenringe (unten) ab und folgt der Kopfneigung (gedrehtes Rechteck). Feinjustage in Augenabständen: `PHOTOTAG_FACEBLUR_BAR_UP` (0.45), `PHOTOTAG_FACEBLUR_BAR_DOWN` (0.35), `PHOTOTAG_FACEBLUR_BAR_SIDE` (1.0 = Gesichtsrand bis Gesichtsrand); `PHOTOTAG_FACEBLUR_MARGIN` addiert Rand rundherum.
+- Mosaik (`MODE=pixel`) bei langgestreckten Formen: Zellgrösse nach der kurzen Seite, damit die Augen nicht lesbar bleiben.
+
+## 0.6.2
+
+- **Face-Blur sichtbar prüfen:** Hinweise am Blur-Kopie-Karte (Einstellungen, Blur-Fläche in %, Warnung bei grossem Blur, Warnung wenn in der Kopie noch ein Gesicht erkannt wird; Region face/tight). Ungültige `PHOTOTAG_FACEBLUR_*`-Werte werden im Job-Log und am Ergebnis gemeldet statt still ignoriert.
+- `phototag.env`: Inline-Kommentare (`KEY=wert   # Text`) werden beim Einlesen entfernt.
+- Video: bei Landmark-Regionen (eyes/mouth/…) wird jedes Frame erkannt (Stride 1).
+
 ## 0.6.1
 
 - **Face-Blur:** `PHOTOTAG_FACEBLUR_REGION` (Landmark-Modi `eyes`, `mouth`, `eyes_mouth`, `eyes_mouth_ears`, plus `tight`) und `PHOTOTAG_FACEBLUR_STRENGTH` (0.2–4). YuNet-Landmarks werden ausgewertet; Button-Tooltip zeigt aktive Region/Stärke/Modus.

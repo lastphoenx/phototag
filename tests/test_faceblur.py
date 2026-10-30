@@ -451,3 +451,363 @@ def test_real_detector_removes_the_face(tmp_path):
     assert res.faces >= 1
     after = cv2.imread(str(dst))
     assert det.detect(after) == []
+
+
+# ---------------------------------------------------------------- 0.6.2: visibility and checks
+
+def test_env_inline_comments_are_stripped(tmp_path, monkeypatch):
+    from phototag.config import read_phototag_env
+
+    f = tmp_path / "phototag.env"
+    f.write_text('PHOTOTAG_FACEBLUR_REGION=eyes   # nur Augen\nPHOTOTAG_FACEBLUR_MARGIN="0.3"\n#PHOTOTAG_FACEBLUR_MODE=pixel\n', encoding="utf-8")
+    monkeypatch.setenv("PHOTOTAG_ENV", str(f))
+    env = read_phototag_env()
+    assert env == {"PHOTOTAG_FACEBLUR_REGION": "eyes", "PHOTOTAG_FACEBLUR_MARGIN": "0.3"}
+
+
+def test_invalid_settings_are_reported_not_silent(monkeypatch):
+    from phototag.config import faceblur_region, faceblur_settings_summary
+
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_REGION", "eyes # kommentar")
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_MARGIN", "0.4 # box")
+    assert faceblur_region() == "eyes"  # the comment text is cut off, the value still works
+    summary = faceblur_settings_summary()
+    assert "WARNUNG" in summary and "MARGIN" in summary and "REGION" not in summary
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_REGION", "augen")  # a real typo is reported
+    assert faceblur_region() == "face" and "REGION" in faceblur_settings_summary()
+
+
+def test_big_face_warns_about_large_blur_area():
+    boxes = [fb.FaceBox(300, 100, 600, 700, 0.9)]  # close-up face in a 1280x720 frame
+    share = fb.blur_area_share(boxes, 1280, 720, margin=0.4, region="face")
+    assert share > 0.25
+    notes = fb.quality_notes(share, 0, region="face")
+    assert any("WARNUNG" in n and "Bildes" in n for n in notes)
+    small = fb.blur_area_share([fb.FaceBox(100, 100, 60, 70, 0.9)], 1280, 720, margin=0.4, region="face")
+    assert not any("WARNUNG" in n for n in fb.quality_notes(small, 0, region="face"))
+
+
+def test_leak_check_flags_faces_left_in_the_copy(tmp_path, monkeypatch):
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_REGION", "face")
+    src, dst = tmp_path / "a.png", tmp_path / "a.ai-blurred.png"
+    _noise_image(src)
+
+    class Stubborn(FakeDetector):  # still "finds" a face in the blurred output
+        pass
+
+    res = fb.blur_image_file(src, dst, detector=Stubborn())
+    assert any("noch 1 Gesicht" in n for n in res.notes)
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_REGION", "eyes")
+    res = fb.blur_image_file(src, dst, detector=Stubborn())
+    assert not any("noch" in n and "Gesicht" in n for n in res.notes)  # eyes mode: no leak claim
+
+
+def test_blur_info_is_stored_and_listed(mount_env):
+    from phototag.admin_mount import list_mount_browse_items
+    from phototag.blur_jobs import blur_one_file
+
+    con = connect()
+    res = blur_one_file(con, "Album/a.png", detector=FakeDetector())
+    row = con.execute("SELECT error FROM images WHERE id=?", (res["id"],)).fetchone()
+    assert row["error"].startswith("faceblur:faces=1;") and "region=" in row["error"]
+    items, _ = list_mount_browse_items(con, "Album", "blurred", set())
+    assert "region=" in items[0]["blur_info"]
+
+
+# ---------------------------------------------------------------- 0.6.3: eye bar
+
+def _landmarks(cx=100.0, cy=80.0, eye_dist=40.0, tilt_deg=0.0):
+    import math
+
+    a = math.radians(tilt_deg)
+    ux, uy = math.cos(a), math.sin(a)
+    re = (cx - ux * eye_dist / 2, cy - uy * eye_dist / 2)
+    le = (cx + ux * eye_dist / 2, cy + uy * eye_dist / 2)
+    return fb.FaceBox(cx - 45, cy - 45, 90, 120, 0.99, landmarks=(re, le, (cx, cy + 25), (cx - 15, cy + 50), (cx + 15, cy + 50)))
+
+
+def _inside(poly, p):
+    pts = np.array(poly, dtype=np.int32)
+    return cv2.pointPolygonTest(pts, (float(p[0]), float(p[1])), False) >= 0
+
+
+def test_eyebar_covers_both_eyes_brows_bags_and_reaches_the_face_edges():
+    b = _landmarks()
+    x0, y0, x1, y1, poly = fb.eye_bar(b, 0.15, 400, 400)
+    for eye in b.landmarks[:2]:
+        assert _inside(poly, eye)
+    assert _inside(poly, (100, 80 - 40 * 0.5))    # brow height (0.5 eye distances above)
+    assert _inside(poly, (100, 80 + 40 * 0.4))    # eye bag height (0.4 below)
+    assert not _inside(poly, (100, 80 + 40 * 1.5))  # mouth/nose stay free
+    assert min(p[0] for p in poly) <= b.x and max(p[0] for p in poly) >= b.x + b.w  # ear to ear
+
+
+def test_eyebar_follows_head_tilt():
+    flat = fb.eye_bar(_landmarks(tilt_deg=0), 0.15, 400, 400)[4]
+    tilt = fb.eye_bar(_landmarks(tilt_deg=20), 0.15, 400, 400)[4]
+    assert flat[0][1] == flat[1][1]            # upper edge level
+    assert tilt[0][1] != tilt[1][1]            # upper edge tilted with the head
+    b = _landmarks(tilt_deg=20)
+    assert all(_inside(tilt, eye) for eye in b.landmarks[:2])
+
+
+def test_eyebar_without_landmarks_falls_back_to_box_geometry():
+    x0, y0, x1, y1, poly = fb.eye_bar(fb.FaceBox(50, 40, 100, 120, 0.9), 0.15, 300, 300)
+    assert x1 - x0 >= 100 and y1 - y0 < 120
+
+
+def test_bar_settings_change_the_bar(monkeypatch):
+    base = fb.eye_bar(_landmarks(), 0.0, 400, 400)[4]
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_BAR_UP", "0.9")
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_BAR_SIDE", "1.4")
+    big = fb.eye_bar(_landmarks(), 0.0, 400, 400)[4]
+    assert min(p[1] for p in big) < min(p[1] for p in base)
+    assert max(p[0] for p in big) > max(p[0] for p in base)
+
+
+@pytest.mark.parametrize("mode", ["blur", "pixel"])
+def test_apply_blur_polygon_changes_only_inside_the_polygon(mode):
+    rng = np.random.default_rng(3)
+    img = rng.integers(0, 255, (200, 200, 3), dtype=np.uint8)
+    orig = img.copy()
+    poly = [(40, 60), (160, 90), (160, 130), (40, 100)]  # tilted bar
+    box = (40, 60, 161, 131, poly)
+    fb.apply_blur(img, [box], mode)
+    mask = np.zeros((200, 200), np.uint8)
+    cv2.fillConvexPoly(mask, np.array(poly, np.int32), 1)
+    assert np.array_equal(img[mask == 0], orig[mask == 0])
+    assert not np.array_equal(img[mask == 1], orig[mask == 1])
+    assert img[mask == 1].std() < orig[mask == 1].std() * 0.6
+
+
+def test_eyebar_pipeline_blurs_only_the_bar_and_reports_it(tmp_path, monkeypatch):
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_REGION", "eyebar")
+    src, dst = tmp_path / "a.png", tmp_path / "a.ai-blurred.png"
+    _noise_image(src, (200, 160))
+    b = _landmarks(cx=100, cy=70, eye_dist=36)
+    res = fb.blur_image_file(src, dst, detector=FakeDetector(boxes=[b]))
+    a, o = np.asarray(Image.open(src).convert("RGB")), np.asarray(Image.open(dst).convert("RGB"))
+    assert not np.array_equal(a[60:80, 80:120], o[60:80, 80:120])    # eyes covered
+    assert np.array_equal(a[110:150, 60:140], o[110:150, 60:140])    # mouth/chin untouched
+    assert "bar_up=" in res.notes[0] and any(n.startswith("Blur-Fläche") for n in res.notes)
+    assert any("übrige Gesichtsteile" in n for n in res.notes)
+
+
+# ---------------------------------------------------------------- 0.6.4: composable parts
+
+def test_region_list_parsing_and_aliases():
+    from phototag.config import parse_region_names
+
+    assert parse_region_names("eyebar, nose+mouth") == (["eyebar", "nose", "mouth"], [])
+    assert parse_region_names("eyes_mouth_ears")[0] == ["eyes", "mouth", "ears"]
+    assert parse_region_names("EyeBar,eyebar")[0] == ["eyebar"]  # case-insensitive, deduplicated
+    assert parse_region_names("nose,toes") == (["nose"], ["toes"])
+    assert parse_region_names("") == ([], [])
+
+
+def test_unknown_parts_are_reported_not_silent(monkeypatch):
+    from phototag.config import faceblur_regions, faceblur_settings_summary
+
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_REGION", "nose,toes")
+    assert faceblur_regions() == ["nose"]
+    assert "toes" in faceblur_settings_summary() and "WARNUNG" in faceblur_settings_summary()
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_REGION", "toes")
+    assert faceblur_regions() == ["face"]  # nothing valid -> safe default
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_SCALE_NOSE", "gross")
+    assert "SCALE_NOSE" in fb_summary()
+
+
+def fb_summary():
+    from phototag.config import faceblur_settings_summary
+
+    return faceblur_settings_summary()
+
+
+def _poly(shape):
+    return shape[4] if len(shape) > 4 else [(shape[0], shape[1]), (shape[2], shape[1]), (shape[2], shape[3]), (shape[0], shape[3])]
+
+
+def _center_of(shape):
+    pts = _poly(shape)
+    return (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
+
+
+@pytest.mark.parametrize("part", ["nose", "mouth", "ears", "chin", "forehead"])
+def test_each_part_sits_where_it_belongs(part):
+    b = _landmarks(cx=200, cy=160, eye_dist=60)
+    shapes = fb.boxes_for_face(b, part, 0.0, 600, 600)
+    assert len(shapes) == (2 if part == "ears" else 1)
+    nose, mouth_mid = b.landmarks[2], ((b.landmarks[3][0] + b.landmarks[4][0]) / 2, (b.landmarks[3][1] + b.landmarks[4][1]) / 2)
+    cx, cy = _center_of(shapes[0])
+    if part == "nose":
+        assert _inside(_poly(shapes[0]), nose) and not _inside(_poly(shapes[0]), mouth_mid)
+    if part == "mouth":
+        assert _inside(_poly(shapes[0]), mouth_mid) and not _inside(_poly(shapes[0]), nose)
+    if part == "chin":
+        assert cy > mouth_mid[1] and not _inside(_poly(shapes[0]), nose)
+    if part == "forehead":
+        assert cy < 160 and not _inside(_poly(shapes[0]), b.landmarks[0])
+    if part == "ears":
+        xs = sorted(_center_of(s)[0] for s in shapes)
+        assert xs[0] < b.x + 5 and xs[1] > b.x + b.w - 5  # left/right edge of the face
+
+
+def test_parts_combine_and_leave_the_rest_free():
+    b = _landmarks(cx=200, cy=160, eye_dist=60)
+    combo = fb.boxes_for_face(b, "eyebar,nose,mouth", 0.1, 600, 600)
+    assert len(combo) == 3
+    mask = np.zeros((600, 600), np.uint8)
+    for s in combo:
+        cv2.fillConvexPoly(mask, np.array(_poly(s), np.int32), 1)
+    assert mask[160, 200] == 1 and mask[185, 200] == 1 and mask[210, 200] == 1   # eyes, nose, mouth covered
+    assert mask[260, 200] == 0                                                   # chin free
+    assert mask[160 - 80, 200] == 0                                              # forehead free
+
+
+def test_tilted_parts_follow_the_head():
+    flat = fb.boxes_for_face(_landmarks(tilt_deg=0), "mouth", 0.1, 400, 400)[0][4]
+    tilt = fb.boxes_for_face(_landmarks(tilt_deg=25), "mouth", 0.1, 400, 400)[0][4]
+    assert flat[0][1] == flat[1][1] and tilt[0][1] != tilt[1][1]
+
+
+def test_scale_changes_size_per_part(monkeypatch):
+    b = _landmarks(eye_dist=60)
+    small = fb.boxes_for_face(b, "nose", 0.0, 600, 600)[0]
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_SCALE_NOSE", "2")
+    big = fb.boxes_for_face(b, "nose", 0.0, 600, 600)[0]
+    assert (big[2] - big[0]) > (small[2] - small[0]) * 1.5
+
+
+def test_parts_work_without_landmarks():
+    b = fb.FaceBox(100, 100, 120, 150, 0.9)
+    for part in ("nose", "mouth", "ears", "chin", "forehead", "eyebar", "eyes"):
+        assert fb.boxes_for_face(b, part, 0.1, 400, 400)
+
+
+def test_parts_pipeline_and_checks(tmp_path, monkeypatch):
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_REGION", "eyebar,nose")
+    src, dst = tmp_path / "a.png", tmp_path / "a.ai-blurred.png"
+    _noise_image(src, (240, 200))
+    b = _landmarks(cx=120, cy=80, eye_dist=40)
+    res = fb.blur_image_file(src, dst, detector=FakeDetector(boxes=[b]))
+    assert "region=eyebar+nose" in res.notes[0]
+    assert any("übrige Gesichtsteile" in n for n in res.notes)
+    assert not any("noch" in n and "Gesicht" in n for n in res.notes)  # no leak claim for partial regions
+    from phototag.faceblur import count_leaks
+
+    assert count_leaks(FakeDetector(), [np.zeros((50, 50, 3), np.uint8)]) == 0
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_REGION", "face,tight")
+    assert count_leaks(FakeDetector(), [np.zeros((50, 50, 3), np.uint8)]) == 1  # box regions are checked
+
+
+# ---------------------------------------------------------------- 0.6.5: fill between parts
+
+def _shapes_mask(shapes, width=600, height=600):
+    mask = np.zeros((height, width), np.uint8)
+    for s in shapes:
+        x0, y0, x1, y1 = s[:4]
+        if len(s) > 4 and hasattr(s[4], "shape"):
+            sub = s[4][: y1 - y0, : x1 - x0] > 0
+            mask[y0:y0 + sub.shape[0], x0:x0 + sub.shape[1]][sub] = 1
+        elif len(s) > 4:
+            cv2.fillConvexPoly(mask, np.array(s[4], np.int32), 1)
+        else:
+            mask[y0:y1, x0:x1] = 1
+    return mask
+
+
+def _prop(cx=300.0, cy=200.0, d=80.0, tilt_deg=0.0):
+    """Face with realistic proportions (nose 0.65 d, mouth 1.25 d below the eye line)."""
+    import math
+
+    a = math.radians(tilt_deg)
+    ux, uy, nx, ny = math.cos(a), math.sin(a), -math.sin(a), math.cos(a)
+
+    def at(along, down):
+        return (cx + ux * along + nx * down, cy + uy * along + ny * down)
+
+    lm = (at(-d / 2, 0), at(d / 2, 0), at(0, 0.65 * d), at(-0.35 * d, 1.25 * d), at(0.35 * d, 1.25 * d))
+    return fb.FaceBox(cx - 0.85 * d, cy - 0.9 * d, 1.7 * d, 2.4 * d, 0.99, landmarks=lm), at
+
+
+def test_fill_none_keeps_separate_bars_and_gaps():
+    b, at = _prop()
+    m = _shapes_mask(fb.boxes_for_face(b, "eyebar,mouth", 0.0, 600, 600))
+    px = lambda p: (int(p[1]), int(p[0]))  # noqa: E731  (row, col)
+    assert m[px(at(0, 0))] == 1 and m[px(at(0, 1.25 * 80))] == 1
+    assert m[px(at(0, 0.7 * 80))] == 0          # gap between eye bar and mouth
+
+
+def test_fill_bridge_closes_the_gap_but_keeps_the_cheeks(monkeypatch):
+    b, at = _prop()
+    plain = _shapes_mask(fb.boxes_for_face(b, "eyebar,mouth", 0.0, 600, 600))
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_FILL", "bridge")
+    shapes = fb.boxes_for_face(b, "eyebar,mouth", 0.0, 600, 600)
+    assert len(shapes) == 1
+    m = _shapes_mask(shapes)
+    px = lambda p: (int(p[1]), int(p[0]))  # noqa: E731
+    assert m[px(at(0, 0.7 * 80))] == 1          # centre column closed
+    assert m[px(at(0.8 * 80, 0.7 * 80))] == 0   # cheek beside the mouth stays visible
+    assert (m >= plain).all()                   # never uncovers what was covered before
+
+
+def test_fill_hull_covers_everything_between(monkeypatch):
+    b, at = _prop()
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_FILL", "hull")
+    shapes = fb.boxes_for_face(b, "eyebar,nose,mouth", 0.0, 600, 600)
+    assert len(shapes) == 1
+    m = _shapes_mask(shapes)
+    px = lambda p: (int(p[1]), int(p[0]))  # noqa: E731
+    assert m[px(at(0.5 * 80, 0.7 * 80))] == 1   # cheek inside the convex hull
+    assert m[px(at(0, 2.0 * 80))] == 0          # chin stays free
+
+
+def test_fill_follows_head_tilt(monkeypatch):
+    b, at = _prop(tilt_deg=25)
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_FILL", "bridge")
+    m = _shapes_mask(fb.boxes_for_face(b, "eyebar,mouth", 0.0, 600, 600))
+    px = lambda p: (int(p[1]), int(p[0]))  # noqa: E731
+    assert m[px(at(0, 0.7 * 80))] == 1          # gap closed along the tilted face axis
+    assert m[px(at(0.8 * 80, 0.7 * 80))] == 0
+
+
+def test_fill_ignored_for_box_regions_and_single_parts(monkeypatch):
+    b = _landmarks()
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_FILL", "hull")
+    assert len(fb.boxes_for_face(b, "face", 0.1, 400, 400)) == 1
+    assert len(fb.boxes_for_face(b, "ears", 0.1, 400, 400)) == 1  # a single shape, nothing to join
+    assert len(fb.boxes_for_face(b, "tight,eyebar", 0.1, 400, 400)) == 2  # box regions skip filling
+
+
+def test_fill_pipeline_blurs_only_inside_the_mask(tmp_path, monkeypatch):
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_REGION", "eyebar,nose,mouth")
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_FILL", "bridge")
+    src, dst = tmp_path / "a.png", tmp_path / "a.ai-blurred.png"
+    _noise_image(src, (300, 260))
+    b = _landmarks(cx=150, cy=90, eye_dist=50)
+    res = fb.blur_image_file(src, dst, detector=FakeDetector(boxes=[b]))
+    a, o = np.asarray(Image.open(src).convert("RGB")), np.asarray(Image.open(dst).convert("RGB"))
+    assert not np.array_equal(a[90:150, 130:170], o[90:150, 130:170])   # column from eyes down to the mouth
+    assert np.array_equal(a[225:, :], o[225:, :])                       # far below: untouched
+    assert "fill=bridge" in res.notes[0]
+
+
+def test_fill_and_scale_settings_are_validated(monkeypatch):
+    from phototag.config import faceblur_fill, faceblur_part_wh, faceblur_settings_summary
+
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_FILL", "alles   # kommentar")
+    assert faceblur_fill() == "none" and "FILL" in faceblur_settings_summary()
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_FILL", "bridge   # kommentar")
+    assert faceblur_fill() == "bridge"
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_SCALE_NOSE_W", "1.5")
+    assert faceblur_part_wh("nose") == (1.5, 1.0)
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_SCALE_NOSE_H", "breit")
+    assert "SCALE_NOSE_H" in faceblur_settings_summary()
+
+
+def test_width_height_factors_change_the_shape(monkeypatch):
+    b = _landmarks(eye_dist=60)
+    base = fb.boxes_for_face(b, "mouth", 0.0, 600, 600)[0]
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_SCALE_MOUTH_W", "1.6")
+    wide = fb.boxes_for_face(b, "mouth", 0.0, 600, 600)[0]
+    assert (wide[2] - wide[0]) > (base[2] - base[0]) * 1.3 and (wide[3] - wide[1]) == (base[3] - base[1])

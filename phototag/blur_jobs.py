@@ -156,6 +156,7 @@ def register_blurred_file(
     source_id: int,
     source_name: str,
     faces: int,
+    info: str = "",
 ) -> int:
     """Insert (or reset) the row of a freshly written blur copy with status ``blurred_review``."""
     from phototag.cli import IMAGE_EXTS, VIDEO_EXTS, encode_image, encode_video, sha1_of
@@ -177,7 +178,8 @@ def register_blurred_file(
     except (OSError, ValueError):
         thumb = None
     caption = f"AI-Blur: {faces} Gesicht(er) in {source_name} verdeckt (Original unverändert)"
-    note = f"faceblur:faces={faces}"
+    note = f"faceblur:faces={faces}" + (f"; {info}" if info else "")
+    note = note[:600]
     existing = con.execute("SELECT id FROM images WHERE root=? AND path=?", (root, rel)).fetchone()
     values = (st.st_size, st.st_mtime, sha1_of(physical), folder, kind, thumb, BLUR_REVIEW, caption, note, source_id, faces)
     if existing:
@@ -229,7 +231,8 @@ def blur_one_file(
     parent_logical = Path(nc_rel).parent.as_posix()
     dest_nc = nc_rel_from_dir_file("" if parent_logical == "." else parent_logical, dest.name)
     new_id = register_blurred_file(
-        con, dest_nc, source_id=source_row["id"], source_name=src.name, faces=res.faces
+        con, dest_nc, source_id=source_row["id"], source_name=src.name, faces=res.faces,
+        info="; ".join(res.notes),
     )
     return {
         "ok": True,
