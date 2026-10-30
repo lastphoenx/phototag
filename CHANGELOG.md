@@ -2,6 +2,11 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.6.1
+
+- **Face-Blur:** `PHOTOTAG_FACEBLUR_REGION` (Landmark-Modi `eyes`, `mouth`, `eyes_mouth`, `eyes_mouth_ears`, plus `tight`) und `PHOTOTAG_FACEBLUR_STRENGTH` (0.2–4). YuNet-Landmarks werden ausgewertet; Button-Tooltip zeigt aktive Region/Stärke/Modus.
+- **Fix:** Blur-Hintergrundprozess lädt `phototag.env` explizit; `MARGIN` skaliert auch Landmark-Boxen; `SCORE` pro Detect aktualisiert. Job-Log und UI-Status zeigen `faceblur settings: …`. **`SCORE` ändert nur Erkennung, nicht Blur-Grösse.**
+
 ## 0.6.0
 
 - **Face-Blur (neu):** Button **Face-Blur** je Datei (Bild oder Video) im Ordner-Browser. Erzeugt `<name>.ai-blurred.<ext>` im **gleichen Ordner** (Mount → Nextcloud), das Original bleibt unverändert. Neue Zeile in der DB mit Status **`blurred_review`**, Verweis auf das Original (`derived_from`).

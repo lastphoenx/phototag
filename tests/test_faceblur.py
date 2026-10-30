@@ -73,6 +73,47 @@ def test_expand_box_clips_to_image():
     assert (x0, y0) == (0, 0) and x1 <= 100 and y1 <= 100 and x1 > 45
 
 
+def _face_with_landmarks():
+    lm = ((60, 45), (50, 45), (55, 55), (58, 62), (48, 62))
+    return fb.FaceBox(40, 30, 40, 50, 0.99, landmarks=lm)
+
+
+def test_boxes_for_face_tight_smaller_than_face():
+    b = _face_with_landmarks()
+    face = fb.boxes_for_face(b, "face", 0.4, 200, 200)[0]
+    tight = fb.boxes_for_face(b, "tight", 0.4, 200, 200)[0]
+    assert (tight[2] - tight[0]) * (tight[3] - tight[1]) < (face[2] - face[0]) * (face[3] - face[1])
+
+
+def test_boxes_for_face_eyes_returns_two_regions():
+    boxes = fb.boxes_for_face(_face_with_landmarks(), "eyes", 0.4, 200, 200)
+    assert len(boxes) == 2
+
+
+def test_boxes_for_face_eyes_mouth_ears_more_boxes_than_eyes():
+    b = _face_with_landmarks()
+    eyes = fb.boxes_for_face(b, "eyes", 0.4, 200, 200)
+    all_parts = fb.boxes_for_face(b, "eyes_mouth_ears", 0.4, 200, 200)
+    assert len(all_parts) > len(eyes)
+
+
+def test_margin_scales_landmark_eye_boxes():
+    b = _face_with_landmarks()
+    small = fb.boxes_for_face(b, "eyes", 0.05, 200, 200)
+    large = fb.boxes_for_face(b, "eyes", 0.8, 200, 200)
+    area = lambda boxes: sum((x1 - x0) * (y1 - y0) for x0, y0, x1, y1 in boxes)
+    assert area(large) > area(small)
+
+
+def test_strength_increases_obfuscation():
+    rng = np.random.default_rng(3)
+    weak = rng.integers(0, 255, (100, 100, 3), dtype=np.uint8)
+    strong = weak.copy()
+    fb.apply_blur(weak, [(20, 20, 60, 60)], "blur", strength=0.35)
+    fb.apply_blur(strong, [(20, 20, 60, 60)], "blur", strength=3.5)
+    assert strong[20:60, 20:60].std() < weak[20:60, 20:60].std()
+
+
 @pytest.mark.parametrize("mode", ["blur", "pixel"])
 def test_apply_blur_changes_only_the_box(mode):
     rng = np.random.default_rng(2)

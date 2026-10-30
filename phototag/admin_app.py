@@ -27,7 +27,7 @@ from phototag.admin_mount import (
     save_mount_tags,
     thumb_bytes_for_nc,
 )
-from phototag.config import faceblur_enabled
+from phototag.config import faceblur_enabled, faceblur_mode, faceblur_region, faceblur_strength
 from phototag.telegram_forward import telegram_configured
 
 _PKG = Path(__file__).resolve().parent
@@ -129,6 +129,9 @@ def create_app():
             app_version=__version__,
             telegram_enabled=telegram_configured(),
             faceblur_enabled=faceblur_enabled(),
+            faceblur_region=faceblur_region(),
+            faceblur_strength=faceblur_strength(),
+            faceblur_mode=faceblur_mode(),
         )
 
     @app.get("/api/tags")

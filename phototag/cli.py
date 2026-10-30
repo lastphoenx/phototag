@@ -880,15 +880,20 @@ def cmd_tag_job_run(args) -> None:
 
 def cmd_blur_job_run(args) -> None:
     from phototag.blur_jobs import run_blur_job
+    from phototag.config import faceblur_settings_summary, load_phototag_env
 
+    load_phototag_env(override=True)
+    print(f"faceblur settings: {faceblur_settings_summary()}", flush=True)
     run_blur_job(connect(), args.job_id)
 
 
 def cmd_faceblur(args) -> None:
     """Blur one file synchronously (CLI/testing). Result is registered like a UI job."""
     from phototag.blur_jobs import blur_one_file
+    from phototag.config import load_phototag_env
     from phototag.faceblur import FaceBlurError, NoFacesFound
 
+    load_phototag_env(override=True)
     con = connect()
     try:
         res = blur_one_file(con, args.nc_path, progress=lambda f: print(f"\r{f:4.0%}", end="", file=sys.stderr))

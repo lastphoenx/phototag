@@ -269,3 +269,17 @@ systemctl restart phototag-admin
 - Es läuft immer nur **ein** Blur-Job; Fortschritt im Button. Log: `state/blur-job-<id>.log`.
 - Prüfen im Filter *Blur-Kopien (prüfen)*: **Blur OK** oder **Blur verwerfen**. Gesichter, die der Detektor nicht findet (stark gedreht, verdeckt, sehr klein), bleiben unverändert — immer Stichprobe ansehen, bevor eine Kopie weitergegeben wird.
 - CLI: `phototag faceblur "Ordner/bild.jpg"` (Pfad relativ zu `PHOTOTAG_SCAN_ROOT`).
+
+**Feintuning** (`phototag.env`, danach `systemctl restart phototag-admin`):
+
+| Variable | Werte | Wirkung |
+|----------|--------|---------|
+| `PHOTOTAG_FACEBLUR_REGION` | `face` (Standard), `tight`, `eyes`, `mouth`, `eyes_mouth`, `eyes_mouth_ears` | `face`/`tight` = Detektor-Box (+ `MARGIN`); Landmark-Modi nutzen YuNet-Punkte (Augen/Mund); Ohren sind Näherung an der Gesichtsseite |
+| `PHOTOTAG_FACEBLUR_STRENGTH` | `0.2`–`4`, Standard `1` | Höher = stärkerer Unkenntlichmachungs-Effekt |
+| `PHOTOTAG_FACEBLUR_SCORE` | `0.2`–`0.95` | **Nur Erkennung** (wie viele Gesichter) — ändert **nicht** die Blur-Fläche |
+| `PHOTOTAG_FACEBLUR_MARGIN` | nur bei `face`/`tight` und skaliert Landmark-Pads | kleiner = weniger Fläche |
+| `PHOTOTAG_FACEBLUR_MODE` | `blur` \| `pixel` | Gaussian vs. Mosaik |
+
+Empfehlung wenn der Blur zu gross wirkte: `PHOTOTAG_FACEBLUR_REGION=eyes_mouth` und/oder `MARGIN=0.2`, `STRENGTH=0.7`–`1.2`.
+
+Blur-Jobs lesen **`phototag.env` beim Start** (auch im Hintergrund-Prozess); Log `state/blur-job-<id>.log` beginnt mit Zeile `faceblur settings: …` — dort siehst du, ob Margin/Region wirklich ankommen. Keys müssen **ohne `#`** aktiv sein.

@@ -17,6 +17,9 @@
   let folderJobActive = false;
   const telegramEnabled = document.body.dataset.telegramEnabled === "1";
   const faceblurEnabled = document.body.dataset.faceblurEnabled === "1";
+  const faceblurRegion = document.body.dataset.faceblurRegion || "face";
+  const faceblurStrength = document.body.dataset.faceblurStrength || "1";
+  const faceblurMode = document.body.dataset.faceblurMode || "blur";
 
   async function withBusyButton(btn, busyLabel, fn) {
     const prev = btn.textContent;
@@ -376,7 +379,13 @@
     btn.type = "button";
     btn.textContent = "Face-Blur";
     btn.title =
-      "Gesichter unkenntlich machen. Erzeugt eine neue Datei *.ai-blurred.* im gleichen Ordner (Original bleibt), Status blurred_review.";
+      "Gesichter unkenntlich machen (Region: " +
+      faceblurRegion +
+      ", Stärke " +
+      faceblurStrength +
+      ", Modus " +
+      faceblurMode +
+      "). Erzeugt *.ai-blurred.* neben dem Original, Status blurred_review. Einstellung: PHOTOTAG_FACEBLUR_REGION / STRENGTH / MODE in phototag.env.";
     btn.onclick = async () => {
       const nc = item.nc_path;
       btn.disabled = true;
@@ -398,8 +407,9 @@
         }
         if (job.status === "done") {
           const r = job.result || {};
+          const noteExtra = Array.isArray(r.notes) && r.notes.length ? " [" + r.notes.join("; ") + "]" : "";
           setStatus(
-            "Face-Blur fertig: " + r.nc_path + " (" + (r.faces || 0) + " Gesicht(er)) — bitte prüfen (blurred_review)"
+            "Face-Blur fertig: " + r.nc_path + " (" + (r.faces || 0) + " Gesicht(er))" + noteExtra + " — bitte prüfen (blurred_review)"
           );
           if (note) note.textContent = "Blur-Kopie: " + r.nc_path;
           await reload();

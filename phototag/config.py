@@ -323,6 +323,22 @@ def faceblur_margin() -> float:
     return _env_float("PHOTOTAG_FACEBLUR_MARGIN", 0.4, 0.0, 1.5)
 
 
+FACEBLUR_REGIONS = frozenset(
+    ("face", "tight", "eyes", "mouth", "eyes_mouth", "eyes_mouth_ears")
+)
+
+
+def faceblur_region() -> str:
+    """Where to blur: full face box, tight box, or YuNet landmark regions (eyes, mouth, ears approx.)."""
+    raw = os.getenv("PHOTOTAG_FACEBLUR_REGION", "face").strip().lower()
+    return raw if raw in FACEBLUR_REGIONS else "face"
+
+
+def faceblur_strength() -> float:
+    """Blur intensity (0.2–4). Higher = stärkerer Unkenntlichmachungs-Effekt."""
+    return _env_float("PHOTOTAG_FACEBLUR_STRENGTH", 1.0, 0.2, 4.0)
+
+
 def faceblur_mode() -> str:
     mode = os.getenv("PHOTOTAG_FACEBLUR_MODE", "blur").strip().lower()
     return mode if mode in ("blur", "pixel") else "blur"
@@ -347,3 +363,57 @@ def faceblur_video_timeout_sec() -> int:
 def faceblur_keep_empty() -> bool:
     """1 = auch ohne erkannte Gesichter eine Kopie schreiben."""
     return _env_bool("PHOTOTAG_FACEBLUR_KEEP_EMPTY", False)
+
+
+def phototag_env_path() -> Path:
+    install = os.getenv("PHOTOTAG_INSTALL_DIR", "/opt/phototag")
+    raw = os.getenv("PHOTOTAG_ENV", f"{install}/phototag.env").strip()
+    return Path(raw)
+
+
+def read_phototag_env() -> dict[str, str]:
+    """Parse phototag.env (KEY=VALUE, no shell expansion)."""
+    path = phototag_env_path()
+    if not path.is_file():
+        return {}
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    out: dict[str, str] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        if not key or not key.startswith("PHOTOTAG_"):
+            continue
+        val = val.strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
+            val = val[1:-1]
+        out[key] = val
+    return out
+
+
+def load_phototag_env(*, override: bool = False) -> bool:
+    """Apply phototag.env to os.environ (Blur-Jobs / CLI ohne ``source``)."""
+    items = read_phototag_env()
+    if not items:
+        return False
+    for key, val in items.items():
+        if override or key not in os.environ:
+            os.environ[key] = val
+    return True
+
+
+def faceblur_settings_summary() -> str:
+    """Effective Face-Blur tuning (for logs / job result)."""
+    return (
+        f"region={faceblur_region()} margin={faceblur_margin():g} strength={faceblur_strength():g} "
+        f"score={faceblur_score():g} mode={faceblur_mode()}"
+    )

@@ -23,7 +23,7 @@ from phototag.admin_mount import (
     nc_rel_from_dir_file,
     physical_file_path,
 )
-from phototag.config import faceblur_keep_empty, faceblur_suffix
+from phototag.config import faceblur_keep_empty, faceblur_suffix, read_phototag_env, load_phototag_env
 from phototag.faceblur import (
     BLUR_OK,
     BLUR_REVIEW,
@@ -137,10 +137,12 @@ def spawn_blur_job_subprocess(job_id: str) -> None:
     install = os.getenv("PHOTOTAG_INSTALL_DIR", "/opt/phototag")
     log_dir = Path(install) / "state"
     log_dir.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env.update(read_phototag_env())
     with open(log_dir / f"blur-job-{job_id}.log", "ab") as logfh:
         subprocess.Popen(
             [sys.executable, "-m", "phototag", "blur-job-run", job_id],
-            cwd=install, env=os.environ.copy(), start_new_session=True,
+            cwd=install, env=env, start_new_session=True,
             stdout=logfh, stderr=subprocess.STDOUT,
         )
 
@@ -244,6 +246,7 @@ def blur_one_file(
 
 
 def run_blur_job(con: sqlite3.Connection, job_id: str) -> None:
+    load_phototag_env(override=True)
     ensure_blur_jobs_table(con)
     row = con.execute("SELECT * FROM blur_jobs WHERE id=?", (job_id,)).fetchone()
     if not row:

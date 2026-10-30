@@ -55,8 +55,10 @@ PHOTOTAG_NC_CA_FILE=/opt/phototag/secrets/ca.pem
 # Modell laden: ./scripts/download-faceblur-model.sh  (YuNet, MIT) — erst dann ist der Button "Face-Blur" sichtbar
 # PHOTOTAG_FACEBLUR_MODEL=/opt/phototag/models/face_detection_yunet_2023mar.onnx
 # PHOTOTAG_FACEBLUR_SUFFIX=ai-blurred
-# PHOTOTAG_FACEBLUR_SCORE=0.5          # niedriger = mehr Treffer (lieber ein Blur zu viel)
-# PHOTOTAG_FACEBLUR_MARGIN=0.4         # Box-Vergroesserung (Stirn, Haare, Kinn)
+# PHOTOTAG_FACEBLUR_SCORE=0.5          # Detektor-Schwelle (mehr/weniger Gesichter) — NICHT Blur-Groesse
+# PHOTOTAG_FACEBLUR_MARGIN=0.4         # Box-Vergroesserung bei region=face (Stirn, Haare, Kinn)
+# PHOTOTAG_FACEBLUR_REGION=face        # face | tight | eyes | mouth | eyes_mouth | eyes_mouth_ears
+# PHOTOTAG_FACEBLUR_STRENGTH=1.0       # 0.2–4, hoeher = staerkerer Blur/Mosaik
 # PHOTOTAG_FACEBLUR_MODE=blur          # blur | pixel (Mosaik, schwerer rueckrechenbar)
 # PHOTOTAG_FACEBLUR_VIDEO_STRIDE=2     # Video: Gesichtserkennung alle N Frames
 # PHOTOTAG_FACEBLUR_VIDEO_CRF=20       # Video: Qualitaet (kleiner = besser/groesser)

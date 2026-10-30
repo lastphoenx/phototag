@@ -21,7 +21,10 @@ from phototag.config import (
     faceblur_max_detect_side,
     faceblur_mode,
     faceblur_model_path,
+    faceblur_region,
     faceblur_score,
+    faceblur_settings_summary,
+    faceblur_strength,
     faceblur_suffix,
     faceblur_video_crf,
     faceblur_video_stride,
@@ -53,6 +56,8 @@ class FaceBox:
     w: float
     h: float
     score: float = 1.0
+    # YuNet: right eye, left eye, nose, right mouth corner, left mouth corner
+    landmarks: tuple[tuple[float, float], ...] | None = None
 
 
 @dataclass
@@ -143,55 +148,183 @@ class FaceDetector:
             work = cv2.resize(bgr, (max(1, round(w * scale)), max(1, round(h * scale))), interpolation=cv2.INTER_AREA)
         wh, ww = work.shape[:2]
         self._det.setInputSize((ww, wh))
+        self._det.setScoreThreshold(faceblur_score())
         _, faces = self._det.detect(work)
         out: list[FaceBox] = []
         if faces is None:
             return out
         for f in faces:
             x, y, bw, bh, score = (float(v) for v in (f[0], f[1], f[2], f[3], f[14]))
-            out.append(FaceBox(x / scale, y / scale, bw / scale, bh / scale, score))
+            lm: tuple[tuple[float, float], ...] | None = None
+            if len(f) >= 15:
+                lm = (
+                    (float(f[4]) / scale, float(f[5]) / scale),
+                    (float(f[6]) / scale, float(f[7]) / scale),
+                    (float(f[8]) / scale, float(f[9]) / scale),
+                    (float(f[10]) / scale, float(f[11]) / scale),
+                    (float(f[12]) / scale, float(f[13]) / scale),
+                )
+            out.append(FaceBox(x / scale, y / scale, bw / scale, bh / scale, score, landmarks=lm))
         return out
 
 
 # ---------------------------------------------------------------- blur
 
+def _clamp_rect(x0: int, y0: int, x1: int, y1: int, width: int, height: int) -> tuple[int, int, int, int]:
+    x0 = max(0, min(width - 1, x0))
+    y0 = max(0, min(height - 1, y0))
+    x1 = max(x0 + 1, min(width, x1))
+    y1 = max(y0 + 1, min(height, y1))
+    return x0, y0, x1, y1
+
+
+def _square_at(cx: float, cy: float, half: float, width: int, height: int) -> tuple[int, int, int, int]:
+    return _clamp_rect(int(cx - half), int(cy - half), int(cx + half), int(cy + half), width, height)
+
+
 def expand_box(b: FaceBox, margin: float, width: int, height: int) -> tuple[int, int, int, int]:
-    """Grow the detector box (forehead, hair, chin are often outside) and clip to the image."""
+    """Grow the detector box and clip to the image. ``margin`` is fraction of face w/h per side."""
     mx, my = b.w * margin, b.h * margin
+    top = my * (1.0 + margin * 0.35)
     x0 = max(0, int(b.x - mx))
-    y0 = max(0, int(b.y - my * 1.2))  # a bit more above: forehead/hair
+    y0 = max(0, int(b.y - top))
     x1 = min(width, int(b.x + b.w + mx))
     y1 = min(height, int(b.y + b.h + my))
-    return x0, y0, max(x0 + 1, x1), max(y0 + 1, y1)
+    return _clamp_rect(x0, y0, x1, y1, width, height)
 
 
-def apply_blur(bgr, boxes: list[tuple[int, int, int, int]], mode: str | None = None) -> None:
-    """In-place. ``blur`` = very strong Gaussian, ``pixel`` = coarse mosaic (harder to reverse)."""
+def _eye_boxes_from_bbox(b: FaceBox, width: int, height: int) -> list[tuple[int, int, int, int]]:
+    """Fallback when landmarks missing (tests): upper face, left/right halves."""
+    x0, y0, x1, y1 = expand_box(b, 0.08, width, height)
+    mid = (x0 + x1) // 2
+    ey1 = y0 + int((y1 - y0) * 0.45)
+    return [
+        _clamp_rect(x0, y0, mid, ey1, width, height),
+        _clamp_rect(mid, y0, x1, ey1, width, height),
+    ]
+
+
+def boxes_for_face(
+    b: FaceBox,
+    region: str | None,
+    margin: float,
+    width: int,
+    height: int,
+) -> list[tuple[int, int, int, int]]:
+    """Map PHOTOTAG_FACEBLUR_REGION to blur rectangles."""
+    reg = (region or faceblur_region()).strip().lower()
+    lm = b.landmarks
+
+    if reg == "face":
+        return [expand_box(b, margin, width, height)]
+    if reg == "tight":
+        tight_m = min(margin, 0.22) if margin > 0 else 0.12
+        return [expand_box(b, tight_m, width, height)]
+
+    if reg in ("eyes", "mouth", "eyes_mouth", "eyes_mouth_ears") and not lm:
+        if reg == "eyes":
+            return _eye_boxes_from_bbox(b, width, height)
+        return [expand_box(b, min(margin, 0.25), width, height)]
+
+    assert lm is not None
+    re, le, nt, rcm, lcm = lm
+    eye_dist = max(8.0, ((re[0] - le[0]) ** 2 + (re[1] - le[1]) ** 2) ** 0.5)
+    m = max(0.0, float(margin))
+    eye_half = eye_dist * (0.10 + m * 0.40)
+    mouth_half = eye_dist * (0.18 + m * 0.45)
+
+    boxes: list[tuple[int, int, int, int]] = []
+
+    if reg in ("eyes", "eyes_mouth", "eyes_mouth_ears"):
+        boxes.append(_square_at(le[0], le[1], eye_half, width, height))
+        boxes.append(_square_at(re[0], re[1], eye_half, width, height))
+
+    if reg in ("mouth", "eyes_mouth", "eyes_mouth_ears"):
+        mx = (rcm[0] + lcm[0]) / 2
+        my = (rcm[1] + lcm[1] + nt[1]) / 3
+        boxes.append(_square_at(mx, my, mouth_half, width, height))
+
+    if reg == "eyes_mouth_ears":
+        ear_w = b.w * (0.08 + m * 0.18)
+        ear_h = b.h * (0.14 + m * 0.20)
+        ey = b.y + b.h * 0.38
+        boxes.append(_clamp_rect(int(b.x - ear_w * 0.9), int(ey), int(b.x + ear_w * 0.1), int(ey + ear_h), width, height))
+        boxes.append(
+            _clamp_rect(
+                int(b.x + b.w - ear_w * 0.1),
+                int(ey),
+                int(b.x + b.w + ear_w * 0.9),
+                int(ey + ear_h),
+                width,
+                height,
+            )
+        )
+
+    if reg == "mouth":
+        boxes = [
+            _square_at(
+                (rcm[0] + lcm[0]) / 2,
+                (rcm[1] + lcm[1] + nt[1]) / 3,
+                mouth_half,
+                width,
+                height,
+            )
+        ]
+
+    if not boxes:
+        return [expand_box(b, margin, width, height)]
+    return boxes
+
+
+def apply_blur(
+    bgr,
+    boxes: list[tuple[int, int, int, int]],
+    mode: str | None = None,
+    *,
+    strength: float | None = None,
+) -> None:
+    """In-place. ``blur`` = Gaussian (strength↑ = stärker), ``pixel`` = mosaic (strength↑ = gröber)."""
     cv2, _ = _require_cv2()
     mode = mode or faceblur_mode()
+    s = faceblur_strength() if strength is None else strength
+    s = max(0.2, min(4.0, float(s)))
     for x0, y0, x1, y1 in boxes:
         roi = bgr[y0:y1, x0:x1]
         rh, rw = roi.shape[:2]
         if rh < 2 or rw < 2:
             continue
         if mode == "pixel":
-            cells = 8
+            cells = max(3, int(round(14.0 / s)))
             small = cv2.resize(roi, (max(1, min(cells, rw)), max(1, min(cells, rh))), interpolation=cv2.INTER_AREA)
             bgr[y0:y1, x0:x1] = cv2.resize(small, (rw, rh), interpolation=cv2.INTER_NEAREST)
         else:
-            # shrink first (drops detail for good), blur, scale back
-            small = cv2.resize(roi, (max(2, rw // 6), max(2, rh // 6)), interpolation=cv2.INTER_AREA)
-            sigma = max(2.0, max(small.shape[:2]) / 4.0)
+            div = max(2, int(round(6.0 / s)))
+            small = cv2.resize(roi, (max(2, rw // div), max(2, rh // div)), interpolation=cv2.INTER_AREA)
+            sigma = max(1.0, max(small.shape[:2]) / 4.0 * s)
             small = cv2.GaussianBlur(small, (0, 0), sigma)
             bgr[y0:y1, x0:x1] = cv2.resize(small, (rw, rh), interpolation=cv2.INTER_CUBIC)
 
 
-def blur_frame(bgr, faces: list[FaceBox], *, margin: float | None = None, mode: str | None = None) -> int:
+def blur_frame(
+    bgr,
+    faces: list[FaceBox],
+    *,
+    margin: float | None = None,
+    mode: str | None = None,
+    region: str | None = None,
+    strength: float | None = None,
+) -> int:
     h, w = bgr.shape[:2]
     m = faceblur_margin() if margin is None else margin
-    boxes = [expand_box(b, m, w, h) for b in faces]
-    apply_blur(bgr, boxes, mode)
-    return len(boxes)
+    reg = region or faceblur_region()
+    strg = faceblur_strength() if strength is None else strength
+    all_boxes: list[tuple[int, int, int, int]] = []
+    for fb in faces:
+        all_boxes.extend(boxes_for_face(fb, reg, m, w, h))
+    if not all_boxes:
+        return 0
+    apply_blur(bgr, all_boxes, mode, strength=strg)
+    return len(all_boxes)
 
 
 # ---------------------------------------------------------------- images
@@ -237,7 +370,8 @@ def blur_image_file(
     else:
         raise FaceBlurError(f"Ausgabeformat nicht unterstützt: {ext}")
     h, w = bgr.shape[:2]
-    return BlurResult(faces=n, width=w, height=h, kind="image")
+    settings = faceblur_settings_summary()
+    return BlurResult(faces=len(faces), width=w, height=h, kind="image", notes=[settings, f"blur_boxes={n}"])
 
 
 # ---------------------------------------------------------------- video
@@ -395,8 +529,14 @@ def blur_video_file(
         raise FaceBlurError(f"Ausgabe-Dauer weicht ab ({out_dur:.1f}s statt {duration:.1f}s)")
     if progress:
         progress(1.0)
-    return BlurResult(faces=max_faces, width=w, height=h, kind="video", frames=total,
-                      notes=[f"{blurred_frames}/{total} Frames mit Blur"])
+    return BlurResult(
+        faces=max_faces,
+        width=w,
+        height=h,
+        kind="video",
+        frames=total,
+        notes=[faceblur_settings_summary(), f"{blurred_frames}/{total} Frames mit Blur"],
+    )
 
 
 def blur_file(src: Path, dst: Path, **kw: Any) -> BlurResult:
@@ -445,6 +585,7 @@ __all__ = [
     "blur_image_file",
     "blur_video_file",
     "blurred_filename",
+    "boxes_for_face",
     "expand_box",
     "is_blurred_name",
     "temp_output_path",
