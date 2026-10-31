@@ -14,7 +14,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from phototag.config import (
     faceblur_fill,
@@ -592,12 +592,41 @@ def count_leaks(detector: "FaceDetector", bgr_frames: list[Any]) -> int:
     return sum(len(detector.detect(f, max_side=1280)) for f in bgr_frames)
 
 
+class PhotoAnalysis(NamedTuple):
+    """What the photo blur found (kept so a person can correct it with a brush later)."""
+
+    faces: list
+    width: int
+    height: int
+
+
+def write_blur_image(bgr, dst: Path, alpha=None) -> None:
+    """Save the blurred pixels in the format of ``dst`` (no metadata); ``alpha`` = PIL alpha channel or None."""
+    _, np = _require_cv2()
+    from PIL import Image
+
+    out = Image.fromarray(np.ascontiguousarray(bgr[:, :, ::-1]))
+    if alpha is not None:
+        out = out.convert("RGBA")
+        out.putalpha(alpha)
+    ext = dst.suffix.lower()
+    if ext in (".jpg", ".jpeg"):
+        out.convert("RGB").save(dst, "JPEG", quality=95, subsampling=0)  # no exif argument = metadata stripped
+    elif ext == ".png":
+        out.save(dst, "PNG", optimize=True)
+    elif ext == ".webp":
+        out.save(dst, "WEBP", quality=95)
+    else:
+        raise FaceBlurError(f"Ausgabeformat nicht unterstützt: {ext}")
+
+
 def blur_image_file(
     src: Path,
     dst: Path,
     *,
     detector: FaceDetector | None = None,
     allow_empty: bool = False,
+    on_analysis: Any = None,
 ) -> BlurResult:
     cv2, np = _require_cv2()
     from PIL import Image, ImageOps
@@ -618,20 +647,10 @@ def blur_image_file(
     faces = det.detect(bgr)
     if not faces and not allow_empty:
         raise NoFacesFound("Keine Gesichter erkannt — keine Kopie erzeugt")
+    if on_analysis:
+        on_analysis(PhotoAnalysis(list(faces), bgr.shape[1], bgr.shape[0]))
     n = blur_frame(bgr, faces)
-    out = Image.fromarray(np.ascontiguousarray(bgr[:, :, ::-1]))
-    if rgba is not None:
-        out = out.convert("RGBA")
-        out.putalpha(rgba.getchannel("A"))
-    ext = dst.suffix.lower()
-    if ext in (".jpg", ".jpeg"):
-        out.convert("RGB").save(dst, "JPEG", quality=95, subsampling=0)  # no exif argument = metadata stripped
-    elif ext == ".png":
-        out.save(dst, "PNG", optimize=True)
-    elif ext == ".webp":
-        out.save(dst, "WEBP", quality=95)
-    else:
-        raise FaceBlurError(f"Ausgabeformat nicht unterstützt: {ext}")
+    write_blur_image(bgr, dst, rgba.getchannel("A") if rgba is not None else None)
     h, w = bgr.shape[:2]
     share = blur_area_share(faces, w, h)
     leaks = count_leaks(det, [np.ascontiguousarray(np.asarray(Image.open(dst).convert("RGB"))[:, :, ::-1])])
@@ -757,11 +776,12 @@ def blur_video_file(
     detector: FaceDetector | None = None,
     progress: ProgressFn | None = None,
     allow_empty: bool = False,
+    on_analysis: Any = None,
 ) -> BlurResult:
     """Video: analysis on a small copy, tracking over time, one render pass (see faceblur_video)."""
     from phototag.faceblur_video import blur_video
 
-    return blur_video(src, dst, detector=detector, progress=progress, allow_empty=allow_empty)
+    return blur_video(src, dst, detector=detector, progress=progress, allow_empty=allow_empty, on_analysis=on_analysis)
 
 
 def blur_file(src: Path, dst: Path, **kw: Any) -> BlurResult:

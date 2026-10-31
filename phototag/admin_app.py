@@ -584,6 +584,172 @@ def create_app():
         except (LookupError, ValueError, FileNotFoundError, OSError) as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
 
+    # ------------------------------------------------ review of a video blur (timeline, corrections, re-render)
+
+    def _review_error(exc: Exception):
+        code = 404 if isinstance(exc, (LookupError, FileNotFoundError)) else 400
+        return jsonify({"ok": False, "error": str(exc.args[0] if exc.args else exc)}), code
+
+    @app.get("/api/blur/<int:image_id>/review")
+    def api_blur_review(image_id: int):
+        _check_api_auth()
+        from phototag.blur_jobs import _blur_row
+        from phototag.blur_review import review_payload
+        from phototag.cli import connect
+
+        con = connect()
+        try:
+            _blur_row(con, image_id)
+            resp = jsonify(review_payload(con, image_id))
+        except (LookupError, ValueError) as exc:
+            return _review_error(exc)
+        resp.headers["Cache-Control"] = "private, no-store"
+        return resp
+
+    @app.get("/api/blur/<int:image_id>/frame/<int:frame>")
+    def api_blur_review_frame(image_id: int, frame: int):
+        """One frame of the ORIGINAL video (unblurred, so the person can see what is there)."""
+        _check_api_auth()
+        from phototag.admin_mount import physical_file_path
+        from phototag.blur_jobs import _blur_row
+        from phototag.blur_review import frame_jpeg, load_analysis
+        from phototag.cli import connect
+        from phototag.faceblur import FaceBlurError
+        from phototag.nextcloud_sync import nc_dav_relative_path
+
+        con = connect()
+        try:
+            row = _blur_row(con, image_id)
+            an, _opts, _r = load_analysis(con, image_id)
+            src_row = con.execute("SELECT root, path FROM images WHERE id=?", (row["derived_from"],)).fetchone()
+            if not src_row:
+                raise LookupError("Original nicht mehr in der Datenbank")
+            src = physical_file_path(nc_dav_relative_path(src_row["root"], src_row["path"]))
+            if not src.is_file():
+                raise FileNotFoundError("Original fehlt auf dem Mount")
+            jpeg = frame_jpeg(src, max(0, min(frame, an.total_frames - 1)), an.fps, request.args.get("w", 640, type=int))
+        except (LookupError, ValueError, FileNotFoundError, FaceBlurError) as exc:
+            return _review_error(exc)
+        resp = app.response_class(jpeg, mimetype="image/jpeg")
+        resp.headers["Cache-Control"] = "private, max-age=300"      # same frame of the same original never changes
+        return resp
+
+    @app.post("/api/blur/<int:image_id>/edits")
+    def api_blur_edit_add(image_id: int):
+        _check_api_auth()
+        from phototag.blur_jobs import _blur_row
+        from phototag.blur_review import add_edit, load_analysis
+        from phototag.cli import connect
+
+        body = request.get_json(silent=True) or {}
+        con = connect()
+        try:
+            _blur_row(con, image_id)
+            an, _opts, _r = load_analysis(con, image_id)
+            edit = add_edit(
+                con, image_id, an, frame_from=body.get("frame_from"), frame_to=body.get("frame_to"),
+                mode=str(body.get("mode") or ""), rect_start=body.get("rect_start"), rect_end=body.get("rect_end"),
+                replace=body.get("replace", True) not in (False, 0, "0", "false"),
+            )
+        except (LookupError, ValueError) as exc:
+            return _review_error(exc)
+        return jsonify({"ok": True, "edit": edit.as_dict(), "pending": True})
+
+    @app.delete("/api/blur/<int:image_id>/edits/<int:edit_id>")
+    def api_blur_edit_delete(image_id: int, edit_id: int):
+        _check_api_auth()
+        from phototag.blur_jobs import _blur_row
+        from phototag.blur_review import delete_edit
+        from phototag.cli import connect
+
+        con = connect()
+        try:
+            _blur_row(con, image_id)
+        except (LookupError, ValueError) as exc:
+            return _review_error(exc)
+        if not delete_edit(con, image_id, edit_id):
+            return jsonify({"ok": False, "error": "Korrektur nicht gefunden"}), 404
+        return jsonify({"ok": True, "pending": True})
+
+    @app.post("/api/blur/<int:image_id>/rerender")
+    def api_blur_rerender(image_id: int):
+        _check_api_auth()
+        from phototag.blur_jobs import BlurBusy, create_rerender_job, get_blur_job, spawn_blur_job_subprocess
+        from phototag.cli import connect
+
+        if not mount_accessible():
+            return jsonify({"ok": False, "error": "PHOTOTAG_SCAN_ROOT nicht lesbar"}), 503
+        con = connect()
+        try:
+            job_id = create_rerender_job(con, image_id)
+        except BlurBusy as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 409
+        except (LookupError, ValueError, FileNotFoundError) as exc:
+            return _review_error(exc)
+        spawn_blur_job_subprocess(job_id)
+        return jsonify({"ok": True, "job": get_blur_job(con, job_id)})
+
+    @app.get("/api/blur/<int:image_id>/photo")
+    def api_blur_photo(image_id: int):
+        """The original photo (view=original) or the blur copy (view=copy), turned and scaled, as JPEG."""
+        _check_api_auth()
+        from phototag.admin_mount import physical_file_path
+        from phototag.blur_jobs import _blur_row
+        from phototag.blur_photo import has_photo, photo_jpeg
+        from phototag.cli import connect
+        from phototag.faceblur import FaceBlurError
+        from phototag.nextcloud_sync import nc_dav_relative_path
+
+        con = connect()
+        try:
+            row = _blur_row(con, image_id)
+            if not has_photo(con, image_id):
+                raise LookupError("Für diese Kopie liegt keine Analyse vor — Blur neu erzeugen.")
+            which = row if request.args.get("view") == "copy" else con.execute(
+                "SELECT root, path FROM images WHERE id=?", (row["derived_from"],)).fetchone()
+            if not which:
+                raise LookupError("Original nicht mehr in der Datenbank")
+            path = physical_file_path(nc_dav_relative_path(which["root"], which["path"]))
+            if not path.is_file():
+                raise FileNotFoundError("Datei fehlt auf dem Mount")
+            jpeg = photo_jpeg(path, request.args.get("w", 1000, type=int))
+        except (LookupError, ValueError, FileNotFoundError, FaceBlurError) as exc:
+            return _review_error(exc)
+        resp = app.response_class(jpeg, mimetype="image/jpeg")
+        resp.headers["Cache-Control"] = "private, no-store"
+        return resp
+
+    @app.put("/api/blur/<int:image_id>/strokes")
+    def api_blur_strokes(image_id: int):
+        _check_api_auth()
+        from phototag.blur_jobs import _blur_row
+        from phototag.blur_photo import set_strokes
+        from phototag.cli import connect
+
+        body = request.get_json(silent=True) or {}
+        con = connect()
+        try:
+            _blur_row(con, image_id)
+            result = set_strokes(con, image_id, body.get("strokes"))
+        except (LookupError, ValueError) as exc:
+            return _review_error(exc)
+        return jsonify({"ok": True, **result})
+
+    @app.post("/api/blur/<int:image_id>/photo-render")
+    def api_blur_photo_render(image_id: int):
+        _check_api_auth()
+        from phototag.blur_photo import rerender_photo
+        from phototag.cli import connect
+        from phototag.faceblur import FaceBlurError
+
+        if not mount_accessible():
+            return jsonify({"ok": False, "error": "PHOTOTAG_SCAN_ROOT nicht lesbar"}), 503
+        con = connect()
+        try:
+            return jsonify(rerender_photo(con, image_id))
+        except (LookupError, ValueError, FileNotFoundError, FaceBlurError, OSError) as exc:
+            return _review_error(exc)
+
     @app.get("/api/images/<int:image_id>/thumb")
     def api_thumb(image_id: int):
         _check_api_auth()

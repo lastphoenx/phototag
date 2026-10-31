@@ -2,6 +2,12 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.7.12
+
+- **Blur-Review (Video):** Analyse in SQLite, Admin-API zum Laden/Speichern von Korrekturen und Re-Render aus dem Original (Stretch-Modi `none` / `face` / `rect`).
+- **Admin UI:** Review-Timeline (sure / unsure / dropped / gap), Korrektur-Panel, Re-Render-Button.
+- **Foto-Blur:** Pinsel/Rect-Review im Admin — manuelle Boxen und Korrekturen vor dem Speichern (Brush-Modus, Tests).
+
 ## 0.7.11
 
 - **Video Face-Blur:** Optional MediaPipe-Zweitmeinung (`PHOTOTAG_FACEBLUR_MP_MODEL`, Extra `pip install -e ".[faceblur-mp]"`), Rand-Padding für abgeschnittene Gesichter, Szenenschnitt-Erkennung (`PHOTOTAG_FACEBLUR_CUT_DIFF`), Eye-Bar-Breiten-Cap (`PHOTOTAG_FACEBLUR_BAR_MAX`). Defaults Gap/Hold **1.5 s / 0.7 s**.

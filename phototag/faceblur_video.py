@@ -55,6 +55,7 @@ from phototag.faceblur import (
     _merge_faces,
     _require_cv2,
     same_face,
+    apply_blur,
     blur_frame,
     probe_display,
     quality_notes,
@@ -575,26 +576,31 @@ def _encode_cmd(src: Path, dst: Path, w: int, h: int, fps: float) -> list[str]:
     ]
 
 
-def blur_video(
-    src: Path,
-    dst: Path,
-    *,
-    detector: FaceDetector | None = None,
-    progress: ProgressFn | None = None,
-    allow_empty: bool = False,
-) -> BlurResult:
-    det = detector or FaceDetector()
-    an = analyze_video(src, det, progress=progress)
-    if not an.tracks and not allow_empty:
-        raise NoFacesFound("Keine Gesichter erkannt — keine Kopie erzeugt")
-
+def output_geometry(an: Analysis) -> tuple[int, int, float]:
+    """(width, height, scale from analysis coordinates) of the rendered video."""
     max_side = faceblur_video_max_side()
     r = min(1.0, max_side / float(max(an.width, an.height))) if max_side else 1.0
     ow, oh = (_even(an.width * r), _even(an.height * r)) if r < 1.0 else (an.width, an.height)
-    k = ow / float(an.analysis_size[0])          # analysis coordinates -> output coordinates
-    frame_faces = tracks_to_frames(an.tracks, an.total_frames, an.fps, scale=k, cuts=an.cuts)
+    return ow, oh, ow / float(an.analysis_size[0])
+
+
+def render_video(
+    src: Path,
+    dst: Path,
+    an: Analysis,
+    frame_faces: dict[int, list[FaceBox]],
+    *,
+    full_faces: dict[int, list[FaceBox]] | None = None,
+    rects: dict[int, list[tuple[float, float, float, float]]] | None = None,
+    progress: ProgressFn | None = None,
+    progress_from: float = 0.0,
+) -> int:
+    """The one render pass. ``frame_faces`` are blurred as configured (eye bar ...), ``full_faces`` as the whole
+    face, ``rects`` (x0, y0, x1, y1 as 0..1 shares of the frame) exactly as drawn. Returns the blurred frame count."""
+    ow, oh, _k = output_geometry(an)
     deadline = time.time() + faceblur_video_timeout_sec()
     margin = faceblur_margin()
+    full_faces, rects = full_faces or {}, rects or {}
 
     enc = subprocess.Popen(_encode_cmd(src, dst, ow, oh, an.fps), stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     blurred = 0
@@ -603,13 +609,18 @@ def blur_video(
     try:
         assert enc.stdin is not None
         for i, frame in enumerate(reader):
-            faces = frame_faces.get(i)
-            if faces:
-                blur_frame(frame, faces, margin=margin)
+            faces, full, drawn = frame_faces.get(i), full_faces.get(i), rects.get(i)
+            if faces or full or drawn:
+                if faces:
+                    blur_frame(frame, faces, margin=margin)
+                if full:
+                    blur_frame(frame, full, margin=margin, region="face")
+                if drawn:
+                    apply_blur(frame, [(int(x0 * ow), int(y0 * oh), int(x1 * ow), int(y1 * oh)) for x0, y0, x1, y1 in drawn])
                 blurred += 1
             enc.stdin.write(frame.data)
             if progress and i % 30 == 0:
-                progress(min(0.99, 0.35 + 0.65 * i / est))
+                progress(min(0.99, progress_from + (1.0 - progress_from) * i / est))
         enc.stdin.close()
         err = enc.stderr.read().decode(errors="replace")[:400] if enc.stderr else ""
         rc = enc.wait(timeout=900)
@@ -635,6 +646,28 @@ def blur_video(
         raise FaceBlurError(f"Ausgabe-Dauer weicht ab ({out_dur:.1f}s statt {an.duration:.1f}s)")
     if progress:
         progress(1.0)
+    return blurred
+
+
+def blur_video(
+    src: Path,
+    dst: Path,
+    *,
+    detector: FaceDetector | None = None,
+    progress: ProgressFn | None = None,
+    allow_empty: bool = False,
+    on_analysis: Callable[[Analysis], None] | None = None,
+) -> BlurResult:
+    det = detector or FaceDetector()
+    an = analyze_video(src, det, progress=progress)
+    if on_analysis:
+        on_analysis(an)           # the review (blur_review) keeps the analysis so a human can correct it later
+    if not an.tracks and not allow_empty:
+        raise NoFacesFound("Keine Gesichter erkannt — keine Kopie erzeugt")
+
+    ow, oh, k = output_geometry(an)          # analysis coordinates -> output coordinates
+    frame_faces = tracks_to_frames(an.tracks, an.total_frames, an.fps, scale=k, cuts=an.cuts)
+    blurred = render_video(src, dst, an, frame_faces, progress=progress, progress_from=0.35)
 
     coverage = blurred / float(an.total_frames)
     notes = [

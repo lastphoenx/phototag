@@ -747,7 +747,548 @@
         say("Verwerfen fehlgeschlagen: " + String(e.message || e), true);
       }
     };
+    const rev = document.createElement("button");
+    rev.type = "button";
+    rev.textContent = "Prüfen / korrigieren";
+    rev.title = item.kind === "video"
+      ? "Zeitleiste mit sicheren und unsicheren Stellen; Blur pro Abschnitt entfernen, ergänzen oder zeichnen"
+      : "Blur mit dem Pinsel ergänzen oder wegradieren";
+    rev.onclick = () => openBlurReview(item, (text) => say(text, false));
+    actions.append(rev);
     actions.append(ok, del);
+  }
+
+  // ---------------------------------------------------------------- review of a video blur (timeline + corrections)
+
+  const REVIEW_KIND = {
+    sure: ["sicher", "Blur auf einer klaren Erkennung"],
+    unsure: ["unsicher", "Blur nur aus Nachbarn berechnet oder schwache Erkennung"],
+    dropped: ["Kandidat verworfen", "Hier wurde etwas gefunden, aber verworfen — vielleicht doch ein Gesicht"],
+    none: ["nichts gefunden", "Kein Blur; kein Gesicht erkannt (Gesicht übersehen?)"],
+  };
+
+  function mk(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function fmtT(sec) {
+    const m = Math.floor(sec / 60);
+    const r = sec - m * 60;
+    return (m ? m + ":" : "") + (m ? String(Math.floor(r)).padStart(2, "0") : r.toFixed(1)) + (m ? "" : " s");
+  }
+
+  async function openBlurReview(item, onDone) {
+    const id = item.id;
+    const root = mk("div", "br-overlay");
+    const box = mk("div", "br-box");
+    root.append(box);
+    document.body.append(root);
+    document.body.classList.add("br-open");
+    let photoDirty = false;     // brush strokes not yet saved
+    const close = () => {
+      if (photoDirty && !confirm("Es gibt Pinselstriche, die nicht gespeichert sind. Trotzdem schliessen?")) return;
+      root.remove();
+      document.body.classList.remove("br-open");
+    };
+    const head = mk("div", "br-head");
+    const title = mk("div", "br-title", "Blur prüfen: " + item.nc_path);
+    const closeBtn = mk("button", null, "Schliessen");
+    closeBtn.type = "button";
+    closeBtn.onclick = close;
+    head.append(title, closeBtn);
+    const msg = mk("p", "br-msg muted-hint", "Lade …");
+    box.append(head, msg);
+    let data = null;
+    let selected = null;        // segment id
+    let busy = false;
+
+    const flash = (text, isErr) => {
+      msg.textContent = text;
+      msg.classList.toggle("blur-warn", !!isErr);
+    };
+
+    async function load(keepSelection) {
+      try {
+        data = await api("/api/blur/" + id + "/review");
+      } catch (e) {
+        flash(String(e.message || e), true);
+        return false;
+      }
+      if (data.kind === "image") {
+        renderPhoto();
+        return true;
+      }
+      if (!keepSelection || !data.segments.some((s) => s.id === selected)) {
+        const first = data.segments.find((s) => s.kind !== "sure") || data.segments[0];
+        selected = first ? first.id : null;
+      }
+      render();
+      return true;
+    }
+
+    function stage(frame, width, shapes) {
+      const st = mk("div", "br-stage");
+      st.style.aspectRatio = String(data.aspect);
+      const img = document.createElement("img");
+      img.loading = "lazy";
+      img.alt = "Frame " + frame;
+      img.src = "/api/blur/" + id + "/frame/" + frame + "?w=" + width;
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", "0 0 1 1");
+      svg.setAttribute("preserveAspectRatio", "none");
+      svg.classList.add("br-svg");
+      (shapes || []).forEach((poly) => {
+        const pg = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+        pg.setAttribute("points", poly.map((p) => p[0] + "," + p[1]).join(" "));
+        pg.setAttribute("class", "br-shape");
+        svg.append(pg);
+      });
+      st.append(img, svg);
+      return { st, svg };
+    }
+
+    function segmentBar() {
+      const bar = mk("div", "br-bar");
+      const total = data.total_frames;
+      data.segments.forEach((s) => {
+        const b = mk("button", "br-seg br-" + s.kind + (s.id === selected ? " sel" : "") + (s.edited ? " edited" : ""));
+        b.type = "button";
+        b.style.flexGrow = String(Math.max(s.frames, total * 0.004));
+        b.title = REVIEW_KIND[s.kind][0] + " · " + fmtT(s.t0) + "–" + fmtT(s.t1) + (s.edited ? " · korrigiert" : "");
+        b.onclick = () => {
+          selected = s.id;
+          render();
+        };
+        bar.append(b);
+      });
+      return bar;
+    }
+
+    function legend() {
+      const l = mk("div", "br-legend");
+      Object.keys(REVIEW_KIND).forEach((k) => {
+        const n = data.counts[k] || 0;
+        const e = mk("span", "br-leg br-" + k);
+        e.title = REVIEW_KIND[k][1];
+        e.textContent = REVIEW_KIND[k][0] + " " + Math.round((100 * n) / data.total_frames) + " %";
+        l.append(e);
+      });
+      return l;
+    }
+
+    async function addEdit(payload) {
+      if (busy) return;
+      busy = true;
+      try {
+        await api("/api/blur/" + id + "/edits", { method: "POST", body: JSON.stringify(payload) });
+        flash("Korrektur gespeichert — «Neu rendern» übernimmt sie in die Datei.", false);
+        await load(true);
+      } catch (e) {
+        flash("Korrektur fehlgeschlagen: " + String(e.message || e), true);
+      } finally {
+        busy = false;
+      }
+    }
+
+    function drawPanel(seg, from, to, onCancel) {
+      const wrap = mk("div", "br-draw");
+      wrap.append(mk("p", "muted-hint", "Rechteck mit Maus, Finger oder Stift auf das Bild ziehen. Das Ende ist optional: ohne Ende bleibt das Rechteck an Ort und Stelle."));
+      const moving = mk("label", "chk");
+      const mvCb = document.createElement("input");
+      mvCb.type = "checkbox";
+      moving.append(mvCb, document.createTextNode(" Rechteck wandert (Anfang → Ende)"));
+      const replaceLab = mk("label", "chk");
+      const repCb = document.createElement("input");
+      repCb.type = "checkbox";
+      repCb.checked = true;
+      replaceLab.append(repCb, document.createTextNode(" automatischen Blur in diesem Bereich ersetzen"));
+      const row = mk("div", "br-draw-row");
+      const rects = { start: null, end: null };
+      const mkPane = (label, frame, key) => {
+        const pane = mk("div", "br-pane");
+        pane.append(mk("div", "br-cap", label + " · Frame " + frame));
+        const { st, svg } = stage(frame, 640, []);
+        const rc = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        rc.setAttribute("class", "br-draw-rect");
+        rc.setAttribute("visibility", "hidden");
+        svg.append(rc);
+        svg.classList.add("br-drawing");
+        let start = null;
+        const pos = (ev) => {
+          const r = svg.getBoundingClientRect();
+          return [Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (ev.clientY - r.top) / r.height))];
+        };
+        const paint = (a, b) => {
+          const x0 = Math.min(a[0], b[0]), y0 = Math.min(a[1], b[1]);
+          rc.setAttribute("x", x0);
+          rc.setAttribute("y", y0);
+          rc.setAttribute("width", Math.abs(a[0] - b[0]));
+          rc.setAttribute("height", Math.abs(a[1] - b[1]));
+          rc.setAttribute("visibility", "visible");
+          rects[key] = [x0, y0, Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+        };
+        svg.addEventListener("pointerdown", (ev) => {
+          ev.preventDefault();
+          svg.setPointerCapture(ev.pointerId);
+          start = pos(ev);
+          paint(start, start);
+        });
+        svg.addEventListener("pointermove", (ev) => {
+          if (start) paint(start, pos(ev));
+        });
+        const stop = () => {
+          start = null;
+        };
+        svg.addEventListener("pointerup", stop);
+        svg.addEventListener("pointercancel", stop);
+        pane.append(st);
+        return pane;
+      };
+      row.append(mkPane("Anfang", from, "start"));
+      const endPane = mkPane("Ende", to, "end");
+      endPane.classList.add("hidden");
+      row.append(endPane);
+      mvCb.onchange = () => {
+        endPane.classList.toggle("hidden", !mvCb.checked);
+        if (!mvCb.checked) rects.end = null;
+      };
+      const ok = mk("button", "primary", "Rechteck anwenden");
+      ok.type = "button";
+      ok.onclick = () => {
+        if (!rects.start) {
+          flash("Erst ein Rechteck auf das Anfangsbild ziehen.", true);
+          return;
+        }
+        if (mvCb.checked && !rects.end) {
+          flash("«Rechteck wandert»: auch auf dem Endbild ein Rechteck ziehen.", true);
+          return;
+        }
+        addEdit({
+          frame_from: from, frame_to: to, mode: "rect", rect_start: rects.start,
+          rect_end: mvCb.checked ? rects.end : null, replace: repCb.checked,
+        });
+      };
+      const cancel = mk("button", null, "Abbrechen");
+      cancel.type = "button";
+      cancel.onclick = onCancel;
+      wrap.append(moving, replaceLab, row, mk("div", "br-actions", null));
+      wrap.lastChild.append(ok, cancel);
+      return wrap;
+    }
+
+    function segmentPanel(seg) {
+      const p = mk("div", "br-panel");
+      const kindTxt = REVIEW_KIND[seg.kind];
+      p.append(mk("h3", null, kindTxt[0] + " · " + fmtT(seg.t0) + " – " + fmtT(seg.t1) + " (Frames " + seg.start + "–" + seg.end + ")"));
+      p.append(mk("p", "muted-hint", kindTxt[1]));
+      const film = mk("div", "br-film");
+      let pick = seg.thumbs[0].frame;
+      const picks = [];
+      seg.thumbs.forEach((t) => {
+        const cell = mk("button", "br-cell" + (t.frame === pick ? " sel" : ""));
+        cell.type = "button";
+        const { st } = stage(t.frame, 360, t.shapes);
+        cell.append(st, mk("span", "br-cap", "Frame " + t.frame + " · " + fmtT(t.t)));
+        cell.onclick = () => {
+          pick = t.frame;
+          picks.forEach(([c, f]) => c.classList.toggle("sel", f === pick));
+        };
+        picks.push([cell, t.frame]);
+        film.append(cell);
+      });
+      p.append(film);
+      p.append(mk("p", "muted-hint", "Orange = hier wird jetzt geblurt. Bild anklicken, dann Anfang/Ende des Bereichs setzen."));
+      const range = mk("div", "br-range");
+      const fromIn = document.createElement("input");
+      const toIn = document.createElement("input");
+      [fromIn, toIn].forEach((i) => {
+        i.type = "number";
+        i.min = "0";
+        i.max = String(data.total_frames - 1);
+        i.className = "br-num";
+      });
+      fromIn.value = String(seg.start);
+      toIn.value = String(seg.end);
+      const setFrom = mk("button", null, "Anfang = gewähltes Bild");
+      setFrom.type = "button";
+      setFrom.onclick = () => (fromIn.value = String(pick));
+      const setTo = mk("button", null, "Ende = gewähltes Bild");
+      setTo.type = "button";
+      setTo.onclick = () => (toIn.value = String(pick));
+      range.append(mk("span", null, "Bereich: Frame "), fromIn, mk("span", null, " bis "), toIn, setFrom, setTo);
+      p.append(range);
+      const bounds = () => [Math.min(Number(fromIn.value), Number(toIn.value)), Math.max(Number(fromIn.value), Number(toIn.value))];
+      const acts = mk("div", "br-actions");
+      const none = mk("button", null, "Kein Gesicht — Blur entfernen");
+      none.type = "button";
+      none.onclick = () => {
+        const [a, b] = bounds();
+        addEdit({ frame_from: a, frame_to: b, mode: "none" });
+      };
+      const full = mk("button", null, "Ganzes Gesicht blurren");
+      full.type = "button";
+      full.title = "Nutzt die nächste erkannte Gesichtsposition (auch verworfene Kandidaten)";
+      full.onclick = () => {
+        const [a, b] = bounds();
+        addEdit({ frame_from: a, frame_to: b, mode: "face" });
+      };
+      const draw = mk("button", "primary", "Rechteck zeichnen …");
+      draw.type = "button";
+      draw.onclick = () => {
+        const [a, b] = bounds();
+        p.replaceWith(drawPanel(seg, a, b, () => render()));
+      };
+      acts.append(none, full, draw);
+      p.append(acts);
+      return p;
+    }
+
+    function editList() {
+      const wrap = mk("div", "br-edits");
+      wrap.append(mk("h3", null, "Korrekturen (" + data.edits.length + ")"));
+      if (!data.edits.length) wrap.append(mk("p", "muted-hint", "Noch keine."));
+      const names = { none: "Blur entfernt", face: "ganzes Gesicht", rect: "Rechteck" };
+      data.edits.forEach((e) => {
+        const row = mk("div", "br-edit");
+        row.append(mk("span", null, "Frames " + e.frame_from + "–" + e.frame_to + " · " + (names[e.mode] || e.mode) + (e.rect_end ? " (wandert)" : "")));
+        const del = mk("button", "danger", "entfernen");
+        del.type = "button";
+        del.onclick = async () => {
+          try {
+            await api("/api/blur/" + id + "/edits/" + e.id, { method: "DELETE" });
+            await load(true);
+          } catch (err) {
+            flash(String(err.message || err), true);
+          }
+        };
+        row.append(del);
+        wrap.append(row);
+      });
+      return wrap;
+    }
+
+    // ---- photos: brush instead of timeline
+    let strokes = [];
+    let photoView = "original";
+    let tool = "add";
+    let brush = 6;              // percent of the image width
+    let photoStamp = String(Date.now());
+
+    function renderPhoto() {
+      if (!photoDirty) strokes = (data.strokes || []).map((st) => ({ op: st.op, size: st.size, pts: st.pts.slice() }));
+      [...box.children].forEach((c) => {
+        if (c !== head) c.remove();
+      });
+      box.append(msg);
+      const tools = mk("div", "br-tools");
+      const mkBtn = (label, cls, fn, title) => {
+        const b = mk("button", cls, label);
+        b.type = "button";
+        if (title) b.title = title;
+        b.onclick = fn;
+        return b;
+      };
+      const bOrig = mkBtn("Original + Blur-Vorschau", photoView === "original" ? "sel" : "", () => {
+        photoView = "original";
+        renderPhoto();
+      }, "Hier malst du: orange = wird geblurt");
+      const bCopy = mkBtn("Ergebnis (Kopie)", photoView === "copy" ? "sel" : "", () => {
+        photoView = "copy";
+        renderPhoto();
+      }, "So sieht die aktuelle Blur-Datei aus");
+      tools.append(bOrig, bCopy);
+      if (photoView === "original") {
+        const bAdd = mkBtn("Pinsel: Blur ergänzen", tool === "add" ? "sel" : "", () => {
+          tool = "add";
+          renderPhoto();
+        }, "Übermalte Stellen werden unkenntlich gemacht");
+        const bErase = mkBtn("Radierer: Blur entfernen", tool === "erase" ? "sel" : "", () => {
+          tool = "erase";
+          renderPhoto();
+        }, "Übermalte Stellen zeigen wieder das Original");
+        const size = document.createElement("input");
+        size.type = "range";
+        size.min = "1";
+        size.max = "20";
+        size.value = String(brush);
+        const sizeVal = mk("span", "muted-hint", "Pinsel " + brush + " %");
+        size.oninput = () => {
+          brush = Number(size.value);
+          sizeVal.textContent = "Pinsel " + brush + " %";
+        };
+        const undo = mkBtn("Rückgängig", "", () => {
+          strokes.pop();
+          photoDirty = true;
+          renderPhoto();
+        });
+        const clear = mkBtn("Alle Striche löschen", "danger", () => {
+          strokes = [];
+          photoDirty = true;
+          renderPhoto();
+        });
+        tools.append(bAdd, bErase, size, sizeVal, undo, clear);
+      }
+      box.append(tools);
+
+      const st = mk("div", "br-stage br-photo");
+      st.style.aspectRatio = String(data.aspect);
+      const img = document.createElement("img");
+      img.alt = photoView === "copy" ? "Ergebnis" : "Original";
+      img.src = "/api/blur/" + id + "/photo?view=" + photoView + "&w=1100&v=" + photoStamp;
+      st.append(img);
+      if (photoView === "original") {
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("viewBox", "0 0 1 1");
+        svg.setAttribute("preserveAspectRatio", "none");
+        svg.classList.add("br-svg");
+        (data.shapes || []).forEach((poly) => {
+          const pg = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+          pg.setAttribute("points", poly.map((p) => p[0] + "," + p[1]).join(" "));
+          pg.setAttribute("class", "br-shape");
+          svg.append(pg);
+        });
+        const cv = document.createElement("canvas");
+        cv.className = "br-canvas";
+        st.append(svg, cv);
+        const draw = () => {
+          const w = st.clientWidth;
+          const h = st.clientHeight;
+          const dpr = window.devicePixelRatio || 1;
+          cv.width = Math.round(w * dpr);
+          cv.height = Math.round(h * dpr);
+          const c = cv.getContext("2d");
+          c.scale(dpr, dpr);
+          c.lineCap = "round";
+          c.lineJoin = "round";
+          strokes.forEach((s) => {
+            c.strokeStyle = s.op === "add" ? "rgba(255,120,0,0.6)" : "rgba(40,210,110,0.6)";
+            c.fillStyle = c.strokeStyle;
+            c.lineWidth = s.size * w;
+            c.beginPath();
+            s.pts.forEach((p, i) => (i ? c.lineTo(p[0] * w, p[1] * h) : c.moveTo(p[0] * w, p[1] * h)));
+            if (s.pts.length === 1) {
+              c.arc(s.pts[0][0] * w, s.pts[0][1] * h, (s.size * w) / 2, 0, Math.PI * 2);
+              c.fill();
+            } else {
+              c.stroke();
+            }
+          });
+        };
+        const ro = new ResizeObserver(draw);
+        ro.observe(st);
+        let cur = null;
+        const pos = (ev) => {
+          const r = cv.getBoundingClientRect();
+          return [Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (ev.clientY - r.top) / r.height))];
+        };
+        cv.addEventListener("pointerdown", (ev) => {
+          ev.preventDefault();
+          cv.setPointerCapture(ev.pointerId);
+          cur = { op: tool, size: brush / 100, pts: [pos(ev)] };
+          strokes.push(cur);
+          draw();
+        });
+        cv.addEventListener("pointermove", (ev) => {
+          if (!cur) return;
+          const p = pos(ev);
+          const last = cur.pts[cur.pts.length - 1];
+          if (Math.hypot(p[0] - last[0], p[1] - last[1]) < 0.002 || cur.pts.length >= 3000) return;
+          cur.pts.push(p);
+          draw();
+        });
+        const end = () => {
+          if (!cur) return;
+          cur = null;
+          photoDirty = true;
+          renderPhoto();
+        };
+        cv.addEventListener("pointerup", end);
+        cv.addEventListener("pointercancel", end);
+      }
+      box.append(st);
+      box.append(mk("p", "muted-hint", photoView === "original"
+        ? "Orange = wird geblurt (automatisch erkannt + deine Pinselstriche), grün = deine Radierer-Striche. Mit Maus, Finger oder Stift malen."
+        : "Das ist die Datei, wie sie jetzt auf dem Mount liegt."));
+
+      const foot = mk("div", "br-actions br-foot");
+      const save = mk("button", "primary", "Speichern & Kopie neu erzeugen");
+      save.type = "button";
+      save.disabled = !photoDirty && !data.pending;
+      save.onclick = async () => {
+        save.disabled = true;
+        save.textContent = "Rendere …";
+        try {
+          await api("/api/blur/" + id + "/strokes", { method: "PUT", body: JSON.stringify({ strokes }) });
+          await api("/api/blur/" + id + "/photo-render", { method: "POST" });
+          photoDirty = false;
+          photoStamp = String(Date.now());
+          photoView = "copy";
+          flash("Kopie neu erzeugt — so sieht sie jetzt aus.", false);
+          if (onDone) onDone("Blur nachbearbeitet: " + item.nc_path + " — bitte erneut prüfen");
+          await load(true);
+          reload().catch(() => {});
+        } catch (e) {
+          flash("Speichern fehlgeschlagen: " + String(e.message || e), true);
+          save.disabled = false;
+          save.textContent = "Speichern & Kopie neu erzeugen";
+        }
+      };
+      foot.append(save);
+      if (photoDirty) foot.append(mk("span", "muted-hint", " Ungespeicherte Pinselstriche."));
+      box.append(foot);
+      if (msg.textContent === "Lade …") msg.textContent = "Mit dem Pinsel Stellen ergänzen oder wegradieren, dann speichern.";
+    }
+
+    function render() {
+      [...box.children].forEach((c) => {
+        if (c !== head) c.remove();
+      });
+      box.append(msg);
+      box.append(legend(), segmentBar());
+      const seg = data.segments.find((s) => s.id === selected);
+      if (seg) box.append(segmentPanel(seg));
+      box.append(editList());
+      const foot = mk("div", "br-actions br-foot");
+      const re = mk("button", "primary", data.pending ? "Neu rendern (Korrekturen übernehmen)" : "Neu rendern");
+      re.type = "button";
+      re.disabled = !data.pending;
+      re.onclick = async () => {
+        re.disabled = true;
+        re.textContent = "Render startet …";
+        try {
+          const started = await api("/api/blur/" + id + "/rerender", { method: "POST" });
+          const job = await pollBlurJobUntilDone(started.job, (pct) => {
+            re.textContent = "Render " + pct + " %";
+            setStatus("Blur neu rendern: " + item.nc_path + " — " + pct + " %");
+          });
+          if (job && job.status === "done") {
+            flash("Neu gerendert. Die Datei enthält jetzt alle Korrekturen.", false);
+            if (onDone) onDone("Blur nachbearbeitet: " + item.nc_path + " — bitte erneut prüfen");
+            await load(true);
+            reload().catch(() => {});
+          } else {
+            flash("Neu rendern fehlgeschlagen (" + (job ? job.status : "?") + "): " + ((job && job.error) || ""), true);
+            re.disabled = false;
+            re.textContent = "Neu rendern (Korrekturen übernehmen)";
+          }
+        } catch (e) {
+          flash("Neu rendern: " + String(e.message || e), true);
+          re.disabled = false;
+          re.textContent = "Neu rendern (Korrekturen übernehmen)";
+        }
+      };
+      foot.append(re);
+      if (data.pending) foot.append(mk("span", "muted-hint", " Es gibt Korrekturen, die noch nicht in der Datei sind."));
+      box.append(foot);
+      msg.textContent = msg.textContent === "Lade …" ? "Gelb, rot und grau prüfen — grün ist sicher. " + data.segments.length + " Abschnitte." : msg.textContent;
+    }
+
+    if (await load(false) && data.kind !== "image") {
+      flash("Gelb, rot und grau prüfen — grün ist sicher. " + data.segments.length + " Abschnitte.", false);
+    }
   }
 
   /** After a page reload the running blur job is gone from the screen; pick it up again. */

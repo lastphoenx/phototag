@@ -25,6 +25,7 @@ from phototag.admin_mount import (
 )
 from phototag.config import (
     faceblur_keep_empty,
+    faceblur_settings_summary,
     faceblur_stage_local,
     faceblur_suffix,
     load_phototag_env,
@@ -77,10 +78,11 @@ class BlurBusy(RuntimeError):
 
 def ensure_blur_jobs_table(con: sqlite3.Connection) -> None:
     con.executescript(BLUR_JOBS_DDL)
-    try:
-        con.execute("ALTER TABLE blur_jobs ADD COLUMN options TEXT")
-    except sqlite3.OperationalError:
-        pass
+    for col in ("options TEXT", "kind TEXT", "target_id INTEGER"):     # kind 'rerender' = render a copy again with corrections
+        try:
+            con.execute(f"ALTER TABLE blur_jobs ADD COLUMN {col}")
+        except sqlite3.OperationalError:
+            pass
     con.commit()
 
 
@@ -126,6 +128,28 @@ def create_blur_job(con: sqlite3.Connection, nc_rel: str, *, options: dict[str, 
     con.execute(
         "INSERT INTO blur_jobs(id,nc_path,status,created_at,heartbeat_at,options) VALUES(?,?,?,?,?,?)",
         (job_id, nc_rel, "pending", time.time(), time.time(), opt_json),
+    )
+    con.commit()
+    return job_id
+
+
+def create_rerender_job(con: sqlite3.Connection, image_id: int) -> str:
+    """Render the copy ``image_id`` again from the original with the corrections of the review."""
+    from phototag.blur_review import load_analysis
+
+    row = _blur_row(con, image_id)
+    if row["kind"] != "video":
+        raise ValueError("Nachbearbeiten gibt es nur für Videos")
+    load_analysis(con, image_id)            # LookupError when the copy predates the review feature
+    ensure_blur_jobs_table(con)
+    busy = active_job(con)
+    if busy:
+        raise BlurBusy(f"Es läuft bereits ein Blur-Job für {busy['nc_path']}")
+    job_id = uuid.uuid4().hex[:16]
+    nc_rel = nc_dav_relative_path(row["root"], row["path"])
+    con.execute(
+        "INSERT INTO blur_jobs(id,nc_path,status,created_at,heartbeat_at,kind,target_id) VALUES(?,?,?,?,?,?,?)",
+        (job_id, nc_rel, "pending", time.time(), time.time(), "rerender", image_id),
     )
     con.commit()
     return job_id
@@ -252,11 +276,13 @@ def blur_one_file(
             staged = work_src if was_staged else None
             if progress:
                 progress(0.08)
+        kept: dict[str, Any] = {}
         res = blur_file(
             work_src, tmp,
             detector=detector or FaceDetector(),
             progress=progress,
             allow_empty=faceblur_keep_empty(),
+            on_analysis=lambda an: kept.setdefault("an", an),
         )
         dest = unique_destination(src.parent, out_name)
         shutil.copyfile(tmp, dest)
@@ -269,6 +295,15 @@ def blur_one_file(
             con, dest_nc, source_id=source_row["id"], source_name=src.name, faces=res.faces,
             info="; ".join(res.notes), local=tmp,
         )
+        if kept.get("an") is not None:                            # the review needs it; a failure here must not lose the copy
+            if hasattr(kept["an"], "tracks"):
+                from phototag.blur_review import save_analysis
+
+                save_analysis(con, new_id, kept["an"], options)
+            else:
+                from phototag.blur_photo import save_photo_analysis
+
+                save_photo_analysis(con, new_id, kept["an"], options)
     finally:
         tmp.unlink(missing_ok=True)
         if staged is not None:
@@ -311,6 +346,57 @@ def blur_preview_for_nc(
     }
 
 
+def rerender_one(con: sqlite3.Connection, image_id: int, *, progress: Any = None) -> dict[str, Any]:
+    """Overwrite the blur copy with a new render: automatic blur + the corrections made in the review."""
+    from phototag.blur_review import list_edits, load_analysis, mark_rendered, plan_frames
+    from phototag.faceblur_video import output_geometry, render_video
+
+    load_phototag_env(override=True)
+    row = _blur_row(con, image_id)
+    if row["status"] not in (BLUR_REVIEW, BLUR_OK):
+        raise ValueError(f"id={image_id} status={row['status']}: nur Kopien in Prüfung")
+    an, options, _rendered = load_analysis(con, image_id)
+    source = apply_blur_options_overlay(options)
+    src_row = con.execute("SELECT * FROM images WHERE id=?", (row["derived_from"],)).fetchone()
+    if not src_row:
+        raise LookupError("Original nicht mehr in der Datenbank")
+    src = physical_file_path(nc_dav_relative_path(src_row["root"], src_row["path"]))
+    if not src.is_file():
+        raise FileNotFoundError(f"Original fehlt auf dem Mount: {src.name}")
+    dest_nc = nc_dav_relative_path(row["root"], row["path"])
+    dest = physical_file_path(dest_nc)
+    if not is_blurred_name(dest.name, faceblur_suffix()):
+        raise ValueError("Dateiname enthält nicht das Blur-Suffix — nicht überschrieben")
+    edits = list_edits(con, image_id)
+    sweep_stale_blur_temps()
+    tmp = temp_output_path(dest.suffix)
+    staged: Path | None = None
+    try:
+        work_src = src
+        if progress:
+            progress(0.02)
+        if faceblur_stage_local():
+            work_src, was_staged = stage_local(src)
+            staged = work_src if was_staged else None
+        _ow, _oh, k = output_geometry(an)
+        plan = plan_frames(an, edits, scale=k)
+        blurred = render_video(work_src, tmp, an, plan.faces, full_faces=plan.full, rects=plan.rects,
+                               progress=progress, progress_from=0.08)
+        shutil.copyfile(tmp, dest)
+        if dest.stat().st_size != tmp.stat().st_size:
+            raise FaceBlurError("Kopie auf den Mount unvollständig (Grösse weicht ab)")
+        info = f"nachbearbeitet: {len(edits)} Korrektur(en); {blurred}/{an.total_frames} Frames mit Blur"
+        register_blurred_file(con, dest_nc, source_id=src_row["id"], source_name=src.name, faces=len(an.tracks),
+                              info=f"{faceblur_settings_summary()}; {info}; source={source}", local=tmp)
+        mark_rendered(con, image_id)
+    finally:
+        tmp.unlink(missing_ok=True)
+        if staged is not None:
+            staged.unlink(missing_ok=True)
+    return {"ok": True, "id": image_id, "nc_path": dest_nc, "faces": len(an.tracks), "kind": "video",
+            "frames": an.total_frames, "notes": [info], "status": BLUR_REVIEW, "rerender": True}
+
+
 def run_blur_job(con: sqlite3.Connection, job_id: str) -> None:
     load_phototag_env(override=True)
     ensure_blur_jobs_table(con)
@@ -340,8 +426,11 @@ def run_blur_job(con: sqlite3.Connection, job_id: str) -> None:
             _update(con, job_id, progress=last_prog, heartbeat_at=now)
 
     try:
-        job_options = options_from_json(row["options"] if row["options"] else None)
-        result = blur_one_file(con, row["nc_path"], progress=on_progress, options=job_options)
+        if row["kind"] == "rerender":
+            result = rerender_one(con, int(row["target_id"]), progress=on_progress)
+        else:
+            job_options = options_from_json(row["options"] if row["options"] else None)
+            result = blur_one_file(con, row["nc_path"], progress=on_progress, options=job_options)
         _update(con, job_id, status="done", finished_at=time.time(), progress=1.0,
                 result=json.dumps(result, ensure_ascii=False), heartbeat_at=time.time())
     except NoFacesFound as exc:
@@ -386,6 +475,11 @@ def reject_blur(con: sqlite3.Connection, image_id: int) -> dict[str, Any]:
         physical.unlink()
     con.execute("DELETE FROM images WHERE id=?", (image_id,))
     con.commit()
+    from phototag.blur_photo import delete_photo_data
+    from phototag.blur_review import delete_review_data
+
+    delete_review_data(con, image_id)
+    delete_photo_data(con, image_id)
     return {"ok": True, "id": image_id, "deleted": nc_rel}
 
 
@@ -411,8 +505,10 @@ __all__ = [
     "blur_one_file",
     "blur_preview_for_nc",
     "create_blur_job",
+    "create_rerender_job",
     "get_blur_job",
     "reject_blur",
+    "rerender_one",
     "run_blur_job",
     "spawn_blur_job_subprocess",
 ]
