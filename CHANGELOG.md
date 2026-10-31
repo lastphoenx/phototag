@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.7.10
+
+- **Nacht-Lauf:** Default **`PHOTOTAG_NIGHT_IMAGES_FIRST=1`** (erst Bilder, dann Videos) — war im Skript fälschlich **0**, obwohl Doku/Referenz **1** vorsahen.
+
 ## 0.7.9
 
 - **Fix:** `run-night-catchup.sh` / Nacht-Lauf ohne `PHOTOTAG_NIGHT_IMAGES_FIRST` — `run_tag` ohne Argument crashte unter `set -u` (`$1 ist nicht gesetzt`).

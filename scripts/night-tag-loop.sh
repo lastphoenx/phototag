@@ -9,7 +9,7 @@
 #   PHOTOTAG_NIGHT_SLEEP=45     Pause Sekunden zwischen Runden (Default 45)
 #   PHOTOTAG_NIGHT_END_HOUR=7   Stop ab dieser Stunde (0–6 Uhr läuft)
 #   PHOTOTAG_NIGHT_KIND=image   nur Bilder | video | leer = beides
-#   PHOTOTAG_NIGHT_IMAGES_FIRST=1   erst alle Bilder, dann Videos/Fehler
+#   PHOTOTAG_NIGHT_IMAGES_FIRST=0  nur gemischt (kind-Reihenfolge DB); Default: 1 = erst Bilder
 #   PHOTOTAG_NIGHT_FORCE=1          eine Tag-Batch (ignoriert END_HOUR) — siehe run-night-catchup.sh
 #   PHOTOTAG_NIGHT_SCAN_AT_START=1  optional ein scan vor dem Taggen (Default: 0)
 #   PHOTOTAG_NIGHT_RESCAN_WHEN_IDLE=1  bei leerer Queue erneut scannen (Default: 0)
@@ -23,7 +23,7 @@ BATCH="${PHOTOTAG_NIGHT_BATCH:-20}"
 SLEEP_SEC="${PHOTOTAG_NIGHT_SLEEP:-45}"
 END_HOUR="${PHOTOTAG_NIGHT_END_HOUR:-7}"
 NIGHT_KIND="${PHOTOTAG_NIGHT_KIND:-}"
-IMAGES_FIRST="${PHOTOTAG_NIGHT_IMAGES_FIRST:-0}"
+IMAGES_FIRST="${PHOTOTAG_NIGHT_IMAGES_FIRST:-1}"
 FORCE="${PHOTOTAG_NIGHT_FORCE:-0}"
 SCAN_AT_START="${PHOTOTAG_NIGHT_SCAN_AT_START:-0}"
 RESCAN_IDLE="${PHOTOTAG_NIGHT_RESCAN_WHEN_IDLE:-0}"

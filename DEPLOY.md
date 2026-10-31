@@ -229,7 +229,7 @@ Kleiner Bestand, schnelle Nacht: z. B. `BATCH=50`, `SLEEP=10`. Volle Bibliothe
 
 - **`scan`** nimmt **Bilder und Videos** (ffmpeg nötig).
 - **`tag` ohne Option** verarbeitet **beides** gemischt (Reihenfolge DB).
-- **`PHOTOTAG_NIGHT_IMAGES_FIRST=1`** in `phototag.env`: erst alle **`new`/`error` mit `kind=image`**, danach Rest (Videos + offene Fehler).
+- **`PHOTOTAG_NIGHT_IMAGES_FIRST`:** Skript-Default **1** — erst alle **`new`/`error` mit `kind=image`**, danach Videos/Fehler. **`0`** = gemischt nach DB-ID.
 - **`PHOTOTAG_NIGHT_KIND=image`** oder **`video`**: nur diese Art (dauerhaft in der Nacht).
 
 ### systemd einrichten (einmalig, du auf dem CT)
