@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.7.9
+
+- **Fix:** `run-night-catchup.sh` / Nacht-Lauf ohne `PHOTOTAG_NIGHT_IMAGES_FIRST` — `run_tag` ohne Argument crashte unter `set -u` (`$1 ist nicht gesetzt`).
+
 ## 0.7.8
 
 - **Admin Browse:** Seitengrösse **100 oder 200** (Dropdown «Pro Seite»), Pager **oben und unten** («← Zurück» / «Weiter →»). Backend erlaubt weiterhin max. 200 pro Request.

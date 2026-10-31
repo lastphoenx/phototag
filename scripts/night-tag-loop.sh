@@ -111,9 +111,10 @@ if ! mountpoint -q "$SCAN_ROOT" 2>/dev/null; then
 fi
 
 run_tag() {
+  local kind_arg="${1:-}"
   local kind_flag=()
-  if [[ -n "$1" ]]; then
-    kind_flag=(--kind "$1")
+  if [[ -n "$kind_arg" ]]; then
+    kind_flag=(--kind "$kind_arg")
   elif [[ -n "$NIGHT_KIND" ]]; then
     kind_flag=(--kind "$NIGHT_KIND")
   fi
@@ -129,6 +130,8 @@ if [[ "$FORCE" != 1 ]] && ! hour_lt_end; then
   echo "FEHLER: Nacht-Fenster zu — Stunde $NOW_H ist nicht < END_HOUR=$END_HOUR (läuft typisch 00:00–06:59)." >&2
   echo "  Catch-up (eine Tag-Batch, im Vordergrund):" >&2
   echo "    ${INSTALL_DIR}/scripts/run-night-catchup.sh" >&2
+  echo "  Länger tagsüber (END_HOUR temporär):" >&2
+  echo "    PHOTOTAG_NIGHT_END_HOUR=24 ${INSTALL_DIR}/scripts/night-tag-loop.sh" >&2
   exit 1
 fi
 
