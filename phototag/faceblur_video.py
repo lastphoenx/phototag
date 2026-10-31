@@ -34,6 +34,8 @@ from phototag.config import (
     faceblur_rotate,
     faceblur_settings_summary,
     faceblur_track_min_score,
+    faceblur_cut_diff,
+    faceblur_edge_pad,
     faceblur_track_trust_score,
     faceblur_track_sure_score,
     faceblur_video_crf,
@@ -42,6 +44,7 @@ from phototag.config import (
     faceblur_video_stride,
     faceblur_video_timeout_sec,
 )
+from phototag.faceblur_mp import create_mediapipe
 from phototag.faceblur import (
     COLLAPSED_EYES,
     BlurResult,
@@ -62,6 +65,9 @@ ProgressFn = Callable[[float], None]
 ANALYSIS_SIDE = 1280
 ANGLE_BONUS = 0.02          # tie-break only: the right view beats the wrong ones by just 0.08-0.16, so no stickiness
 JUMP_WEIGHT = 0.12          # continuity: of two similar detections prefer the one that stays where the face was
+MP_CONFIRM_MIN = 2          # samples MediaPipe must agree on before a YuNet track below the trust score is believed
+UPRIGHT_MIN_HITS = 3        # an upright track needs no second orientation from this many samples ...
+UPRIGHT_MIN_MEAN = 0.60     # ... and this mean score
 SURE_ITEM = 0.70           # a sample at/above this (and with trustworthy eyes) can serve as anchor for its neighbours
 ACTIVE_WITHIN = 6           # samples: a track counts as "live" this long after its last hit (ghost suppression)
 
@@ -124,6 +130,8 @@ class Track:
     last_sample: int = 0
     checked: bool = False       # was there a chance to see it in a second orientation?
     corroborated: bool = False  # ... and was it seen there too?
+    confirmed: int = 0          # samples the second detector (MediaPipe) agreed on
+    closed: bool = False        # a scene cut ended this track: it never continues behind the cut
 
     @property
     def hits(self) -> int:
@@ -146,16 +154,22 @@ class Tracker:
     """Links per-sample detections into tracks and decides which tracks are real faces."""
 
     def __init__(self, *, min_hits: int = 2, min_mean: float | None = None, sure: float | None = None,
-                 max_gap_samples: int = 40):
+                 max_gap_samples: int = 15, second_opinion: bool = False):
         self.min_hits = min_hits
         self.min_mean = faceblur_track_min_score() if min_mean is None else min_mean
         self.sure = faceblur_track_sure_score() if sure is None else sure
         self.trust = faceblur_track_trust_score()   # above this a detection needs no second orientation
         self.max_gap = max_gap_samples
+        self.second_opinion = second_opinion   # a second detector (MediaPipe) is running: tracks need its agreement
         self.item_floor = max(0.0, self.min_mean - 0.05)   # single detections below this never extend a track
         self.tracks: list[Track] = []
         self._n = 0          # samples seen
         self._next_id = 1
+
+    def cut(self) -> None:
+        """A scene cut: everything followed so far ends here (the face behind the cut is a new situation)."""
+        for tr in self.tracks:
+            tr.closed = True
 
     def _fits(self, tr: Track, c: FaceBox) -> bool:
         """A weak or suddenly much bigger/smaller box is not the same face, whatever its position
@@ -165,9 +179,10 @@ class Tracker:
         ref = tr.last_face.w
         return ref <= 0 or 0.5 <= c.w / ref <= 2.0
 
-    def update(self, frame_idx: int, passes: dict[int, list[FaceBox]]) -> None:
+    def update(self, frame_idx: int, passes: dict[int, list[FaceBox]], extra: list[FaceBox] | None = None) -> None:
         self._n += 1
-        cands = [f for faces in passes.values() for f in faces]
+        extra = extra or []
+        cands = [f for faces in passes.values() for f in faces] + list(extra)
         everything = list(cands)
         multi = len([k for k in passes]) > 1
 
@@ -178,7 +193,7 @@ class Tracker:
                     tr.corroborated = True
 
         for tr in sorted(self.tracks, key=lambda t: (-t.hits, t.id)):
-            if self._n - tr.last_sample > self.max_gap:
+            if tr.closed or self._n - tr.last_sample > self.max_gap:
                 continue
             near = [c for c in cands if _near(tr.last_face, c) and self._fits(tr, c)]
             if not near:
@@ -191,19 +206,30 @@ class Tracker:
                 - JUMP_WEIGHT * _jump(ref, c),
             )
             tr.items.append((frame_idx, best))
+            if any(same_face(best, e) for e in extra):
+                tr.confirmed += 1
             tr.angle = best.angle
             tr.last_sample = self._n
             corroborate(tr, best)
             cands = [c for c in cands if not same_face(best, c)]
         # What is left may be a NEW face. Never start one on top of a face that is already followed:
         # that is the same face seen in another orientation (wrong landmarks) and would show up as a ghost.
-        live = [t.last_face for t in self.tracks if self._n - t.last_sample <= ACTIVE_WITHIN]
+        live = [t.last_face for t in self.tracks if not t.closed and self._n - t.last_sample <= ACTIVE_WITHIN]
         cands = [c for c in cands if not any(same_face(l, c) for l in live)]
         for f in _merge_faces([c for c in cands if c.score >= self.item_floor]):
             tr = Track(self._next_id, f.angle, [(frame_idx, f)], self._n)
+            tr.confirmed = 1 if any(same_face(f, e) for e in extra) else 0
             corroborate(tr, f)
             self._next_id += 1
             self.tracks.append(tr)
+
+    @staticmethod
+    def _upright_ok(tr: Track) -> bool:
+        """A second orientation is asked for because wrong-view readings (90/180/270) make ghosts. A track that was
+        found upright, steadily and with a fair score is the plain detector at work and needs no second opinion
+        (a frontal face with glasses is often not found in the rotated views at all)."""
+        upright = sum(1 for _, f in tr.items if f.angle == 0)
+        return tr.hits >= UPRIGHT_MIN_HITS and upright >= 0.8 * tr.hits and tr.mean_score >= UPRIGHT_MIN_MEAN
 
     def finish(self) -> tuple[list[Track], list[tuple[Track, str]]]:
         """(kept, dropped with reason). A track is real when it is long enough AND clearly a face,
@@ -211,9 +237,17 @@ class Tracker:
         kept: list[Track] = []
         dropped: list[tuple[Track, str]] = []
         for tr in self.tracks:
-            unconfirmed = faceblur_corroborate() and tr.checked and not tr.corroborated
+            if self.second_opinion:
+                # two independent detectors agreeing is the strongest proof; a track only YuNet believes in
+                # (a hand, a thigh) needs a very high score
+                unconfirmed = tr.confirmed < MP_CONFIRM_MIN and not tr.corroborated
+            else:
+                unconfirmed = faceblur_corroborate() and tr.checked and not tr.corroborated
+                if unconfirmed and tr.mean_score < self.trust and self._upright_ok(tr):
+                    unconfirmed = False
             if unconfirmed and tr.mean_score < self.trust:
-                dropped.append((tr, f"nur in einer Drehung gefunden (Drehung {tr.angle}, Mittel {tr.mean_score:.2f})"))
+                why = "von MediaPipe nicht bestätigt" if self.second_opinion else "nur in einer Drehung gefunden"
+                dropped.append((tr, f"{why} (Drehung {tr.angle}, Mittel {tr.mean_score:.2f})"))
             elif tr.hits < self.min_hits:
                 if tr.max_score >= self.sure:
                     kept.append(tr)          # one very sure hit: a face that only flashes by
@@ -344,9 +378,20 @@ def smooth_items(items: list[tuple[int, FaceBox]], window: int = 3) -> list[tupl
     return out
 
 
+def _cut_before(cuts: list[int] | None, i: int) -> int:
+    """First frame of the scene that frame ``i`` belongs to."""
+    return max((c for c in (cuts or []) if c <= i), default=0)
+
+
+def _cut_after(cuts: list[int] | None, i: int, total: int) -> int:
+    """First frame of the NEXT scene (nothing is held from ``i`` up to or beyond it)."""
+    return min((c for c in (cuts or []) if c > i), default=total)
+
+
 def tracks_to_frames(
     tracks: list[Track], total_frames: int, fps: float, *, scale: float = 1.0,
     gap_sec: float | None = None, hold_sec: float | None = None, smooth: int = 3,
+    cuts: list[int] | None = None,
 ) -> dict[int, list[FaceBox]]:
     """frame index -> faces to blur (coordinates multiplied by ``scale``)."""
     gap = max(0, int(round((faceblur_gap_sec() if gap_sec is None else gap_sec) * fps)))
@@ -369,10 +414,10 @@ def tracks_to_frames(
                     put(i, lerp_face(fa, fb, (i - ia) / max(1, ib - ia)))
             if last_of_segment:
                 ia, fa = items[segment_start]
-                for i in range(max(0, ia - hold), ia):          # before the first detection
+                for i in range(max(_cut_before(cuts, ia), ia - hold), ia):          # before the first detection
                     put(i, fa)
                 ib, fb = items[k]
-                for i in range(ib, min(total_frames, ib + hold + 1)):  # the last one and after it
+                for i in range(ib, min(total_frames, _cut_after(cuts, ib, total_frames), ib + hold + 1)):  # the last one and after it
                     put(i, fb)
                 segment_start = k + 1
     for i, faces in frames.items():
@@ -382,6 +427,28 @@ def tracks_to_frames(
 
 
 # ---------------------------------------------------------------- video I/O
+
+def detect_padded(detector: FaceDetector, frame, angles: tuple[int, ...], pad: float) -> dict[int, list[FaceBox]]:
+    """detect_passes on the frame with a replicated border (faces cut off by the frame edge are found
+    then); results are mapped back to frame coordinates. A face whose centre lies outside the frame is dropped."""
+    if pad <= 0:
+        return detector.detect_passes(frame, angles, max_side=ANALYSIS_SIDE)
+    cv2, _ = _require_cv2()
+    h, w = frame.shape[:2]
+    m = int(round(max(w, h) * pad))
+    big = cv2.copyMakeBorder(frame, m, m, m, m, cv2.BORDER_REPLICATE)
+    out: dict[int, list[FaceBox]] = {}
+    for ang, faces in detector.detect_passes(big, angles, max_side=ANALYSIS_SIDE).items():
+        keep = []
+        for f in faces:
+            lm = tuple((x - m, y - m) for x, y in f.landmarks) if f.landmarks else None
+            g = FaceBox(f.x - m, f.y - m, f.w, f.h, f.score, landmarks=lm, angle=f.angle)
+            cx, cy = g.x + g.w / 2, g.y + g.h / 2
+            if 0 <= cx < w and 0 <= cy < h:
+                keep.append(g)
+        out[ang] = keep
+    return out
+
 
 def _even(n: float) -> int:
     return max(2, int(round(n / 2.0)) * 2)
@@ -445,6 +512,7 @@ class Analysis:
     raw_detections: int
     samples: int
     angle_switches: int = 0
+    cuts: list[int] = field(default_factory=list)
 
 
 def analyze_video(
@@ -457,7 +525,12 @@ def analyze_video(
     deadline = time.time() + faceblur_video_timeout_sec()
     est = max(1, int(duration * fps)) if duration else 0
     rotate = faceblur_rotate()
-    tracker = Tracker()
+    edge_pad = faceblur_edge_pad()
+    second = create_mediapipe()
+    tracker = Tracker(second_opinion=second is not None)
+    cut_diff = faceblur_cut_diff()
+    cuts: list[int] = []
+    prev_thumb = None
     raw = 0
     switches = 0
     total = 0
@@ -468,10 +541,17 @@ def analyze_video(
             if i % stride == 0:
                 # all four views every time: while a head turns, the best view changes from sample to sample
                 angles = (0, 90, 180, 270) if rotate else (0,)
-                passes = detector.detect_passes(frame, angles, max_side=ANALYSIS_SIDE)
+                if cut_diff > 0:
+                    cv2_, np_ = _require_cv2()
+                    thumb = cv2_.resize(cv2_.cvtColor(frame, cv2_.COLOR_BGR2GRAY), (32, 24), interpolation=cv2_.INTER_AREA).astype(np_.float32)
+                    if prev_thumb is not None and float(np_.abs(thumb - prev_thumb).mean()) > cut_diff:
+                        cuts.append(i)
+                        tracker.cut()
+                    prev_thumb = thumb
+                passes = detect_padded(detector, frame, angles, edge_pad)
                 raw += sum(len(v) for v in passes.values())
                 before = {t.id: t.angle for t in tracker.tracks}
-                tracker.update(i, passes)
+                tracker.update(i, passes, second.detect(frame) if second else None)
                 switches += sum(1 for t in tracker.tracks if t.id in before and before[t.id] != t.angle)
             if progress and est and i % 30 == 0:
                 progress(min(progress_span, progress_span * i / est))
@@ -480,7 +560,7 @@ def analyze_video(
     if total == 0:
         raise FaceBlurError("Keine Videoframes gelesen")
     kept, dropped = tracker.finish()
-    return Analysis(w, h, fps, duration, total, (aw, ah), kept, dropped, raw, tracker._n, switches)
+    return Analysis(w, h, fps, duration, total, (aw, ah), kept, dropped, raw, tracker._n, switches, cuts)
 
 
 def _encode_cmd(src: Path, dst: Path, w: int, h: int, fps: float) -> list[str]:
@@ -512,7 +592,7 @@ def blur_video(
     r = min(1.0, max_side / float(max(an.width, an.height))) if max_side else 1.0
     ow, oh = (_even(an.width * r), _even(an.height * r)) if r < 1.0 else (an.width, an.height)
     k = ow / float(an.analysis_size[0])          # analysis coordinates -> output coordinates
-    frame_faces = tracks_to_frames(an.tracks, an.total_frames, an.fps, scale=k)
+    frame_faces = tracks_to_frames(an.tracks, an.total_frames, an.fps, scale=k, cuts=an.cuts)
     deadline = time.time() + faceblur_video_timeout_sec()
     margin = faceblur_margin()
 
@@ -562,6 +642,8 @@ def blur_video(
         f"{blurred}/{an.total_frames} Frames mit Blur ({coverage:.0%}); {len(an.tracks)} Gesicht(er) verfolgt, "
         f"{len(an.dropped)} unsichere Treffer verworfen; Ausgabe {ow}x{oh}",
     ]
+    if an.cuts:
+        notes.append(f"{len(an.cuts)} Schnitt(e)/Überblendung(en) erkannt: dort endet das Blur-Tracking")
     if coverage < 0.9:
         notes.append(f"WARNUNG: in {1 - coverage:.0%} der Frames kein Gesicht gefunden — Video durchsehen")
     notes.extend(quality_notes(0.0, 0))
@@ -577,7 +659,7 @@ def debug_sheet(src: Path, detector: FaceDetector, out_png: Path, *, columns: in
     n = columns * rows
     picks = sorted({int(i * (an.total_frames - 1) / max(1, n - 1)) for i in range(n)})
     w, h = an.analysis_size
-    kept_by_frame = tracks_to_frames(an.tracks, an.total_frames, an.fps, scale=1.0)
+    kept_by_frame = tracks_to_frames(an.tracks, an.total_frames, an.fps, scale=1.0, cuts=an.cuts)
     dropped_items: dict[int, list[tuple[FaceBox, str]]] = {}
     for tr, why in an.dropped:
         for idx, f in tr.items:

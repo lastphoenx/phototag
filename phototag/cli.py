@@ -909,6 +909,29 @@ def cmd_faceblur_debug(args) -> None:
         sys.exit(f"faceblur-debug: {exc}")
 
 
+def cmd_faceblur_eval(args) -> None:
+    """Hit rate / false blocks of the video blur against hand-labelled frames (or a contact sheet to label from)."""
+    from phototag.admin_mount import physical_file_path
+    from phototag.config import load_phototag_env
+    from phototag.faceblur import FaceBlurError
+    from phototag.faceblur_eval import contact_sheet, evaluate
+
+    load_phototag_env(override=True)
+    try:
+        src = physical_file_path(args.nc_path)
+        if not src.is_file():
+            sys.exit(f"Datei fehlt: {args.nc_path}")
+        if args.sheet or not args.truth:
+            out = Path(db_path()).parent / f"faceblur-eval-{src.stem}.png"
+            print(contact_sheet(src, out, step=args.step))
+            if not args.truth:
+                print("Frames beschriften (full/part/none) und mit --truth DATEI.json erneut aufrufen.")
+                return
+        print(evaluate(src, Path(args.truth)))
+    except (FaceBlurError, ValueError) as exc:
+        sys.exit(f"faceblur-eval: {exc}")
+
+
 def cmd_version(_args) -> None:
     from phototag import __version__
 
@@ -955,6 +978,12 @@ def main() -> None:
     fbd = sub.add_parser("faceblur-debug", help="Face-Blur nur analysieren: Prüfbild mit erkannten/verworfenen Gesichtern")
     fbd.add_argument("nc_path", help="Video relativ zu PHOTOTAG_SCAN_ROOT")
     fbd.set_defaults(fn=cmd_faceblur_debug)
+    fbe = sub.add_parser("faceblur-eval", help="Video-Blur an von Hand beschrifteten Frames messen (Trefferquote, Blöcke ohne Gesicht)")
+    fbe.add_argument("nc_path", help="Video relativ zu PHOTOTAG_SCAN_ROOT")
+    fbe.add_argument("--truth", default="", help="JSON mit {\"frames\": {\"90\": \"full|part|none\"}}")
+    fbe.add_argument("--sheet", action="store_true", help="Kontaktbogen zum Beschriften schreiben")
+    fbe.add_argument("--step", type=int, default=90, help="jeder wievielte Frame auf den Kontaktbogen (Standard 90)")
+    fbe.set_defaults(fn=cmd_faceblur_eval)
     q = sub.add_parser("search"); q.add_argument("query", nargs="?", default="")
     q.add_argument("--any", action="store_true"); q.add_argument("--fuzzy", action="store_true")
     q.add_argument("--tag", action="append"); q.add_argument("--folder", default=""); q.add_argument("--kind", choices=["image", "video"])

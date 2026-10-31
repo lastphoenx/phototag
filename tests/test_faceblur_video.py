@@ -217,6 +217,7 @@ def test_video_without_a_trusted_face_writes_nothing(tmp_path):
 
 @needs_ffmpeg
 def test_blur_is_applied_where_the_interpolated_face_is(tmp_path, monkeypatch):
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_EDGE_PAD", "0")      # the scripted detector knows nothing about a border
     monkeypatch.setenv("PHOTOTAG_FACEBLUR_REGION", "face")
     monkeypatch.setenv("PHOTOTAG_FACEBLUR_MARGIN", "0.1")
     monkeypatch.setenv("PHOTOTAG_FACEBLUR_VIDEO_MAX_SIDE", "0")
@@ -415,3 +416,142 @@ def test_axis_votes_come_from_the_original_readings_not_the_size_filter():
     original = [(i * 3, _fb(100, 100, 120, angle=270 if i % 3 == 0 else 0, eye_d=4)) for i in range(10)]
     filtered = [(i, _fb(100, 100, 120, angle=270, eye_d=4)) for i, _ in original]
     assert all(f.angle == 0 for _, f in settle_axes(filtered, voters=original)[2:-2])
+
+
+def test_edge_padding_maps_faces_back_and_drops_faces_that_lie_outside_the_frame():
+    import numpy as np
+    from phototag.faceblur_video import detect_padded
+
+    class Padded:
+        def detect_passes(self, img, angles, max_side=0):
+            h, w = img.shape[:2]
+            m = (w - 100) // 2                                   # frame is 100 wide: the border is m on each side
+            inside = _fb(m + 70, m + 10, 40)                      # centre inside the frame, sticks out on the right
+            outside = _fb(m + 300, m + 10, 40)                    # centre far right of the frame
+            return {0: [inside, outside]}
+
+    frame = np.zeros((60, 100, 3), np.uint8)
+    got = detect_padded(Padded(), frame, (0,), 0.5)[0]
+    assert len(got) == 1 and got[0].x == 70 and got[0].y == 10       # back in frame coordinates, outside one dropped
+
+
+def test_upright_track_needs_no_second_orientation_but_rotated_ghost_does():
+    def track(angle, score, n=10):
+        t = fv.Track(1, angle, [(i * 3, face(100, 80, 100, 130, score, angle)) for i in range(n)])
+        t.checked, t.corroborated = True, False
+        return t
+    tk = fv.Tracker()
+    tk.tracks = [track(0, 0.66)]
+    assert len(tk.finish()[0]) == 1                          # upright, steady, 0.66: a real face with glasses
+    tk.tracks = [track(0, 0.55)]
+    assert len(tk.finish()[0]) == 0                          # too weak without a second opinion
+    tk.tracks = [track(270, 0.75)]
+    assert len(tk.finish()[0]) == 0                          # rotated reading: still needs the second orientation
+    tk.tracks = [track(0, 0.80, n=2)]
+    assert len(tk.finish()[0]) == 0                          # two samples are not enough
+
+
+def _steady(n=12, score=0.62, x=100, y=80, w=100):
+    return [{0: [face(x, y, w, int(w * 1.3), score)]} for _ in range(n)]
+
+
+def test_with_a_second_detector_a_track_it_never_confirms_is_dropped():
+    tk = fv.Tracker(second_opinion=True)
+    for k, passes in enumerate(_steady()):
+        tk.update(k * 3, passes, [])                                   # YuNet sees "a face" (a hand), MediaPipe does not
+    assert tk.finish()[0] == []
+
+
+def test_with_a_second_detector_a_confirmed_track_is_kept_even_with_glasses_scores():
+    tk = fv.Tracker(second_opinion=True)
+    for k, passes in enumerate(_steady()):
+        extra = [face(98, 78, 104, 134, 0.8)] if k in (2, 5, 9) else []   # MediaPipe agrees now and then
+        tk.update(k * 3, passes, extra)
+    kept, _ = tk.finish()
+    assert len(kept) == 1 and kept[0].confirmed == 3
+
+
+def test_second_detector_alone_can_start_a_face_that_yunet_misses():
+    tk = fv.Tracker(second_opinion=True)
+    for k in range(6):
+        tk.update(k * 3, {0: []}, [face(100, 80, 100, 130, 0.8)])
+    assert len(tk.finish()[0]) == 1
+
+
+def test_mesh_points_become_yunet_style_landmarks():
+    from phototag.faceblur_mp import mesh_to_face
+    pts = [(100.0 + (i % 20) * 3, 100.0 + (i // 20) * 3) for i in range(478)]
+    pts[33], pts[133], pts[362], pts[263], pts[1], pts[61], pts[291] = (110, 120), (130, 120), (170, 120), (190, 120), (150, 150), (125, 175), (175, 175)
+    f = mesh_to_face(pts)
+    re, le, nose, rcm, lcm = f.landmarks
+    assert re == (120.0, 120.0) and le == (180.0, 120.0) and nose == (150, 150) and rcm[0] < lcm[0]
+    assert f.w > 0 and f.h > 0 and f.angle == 0
+
+
+def test_without_the_model_the_pipeline_runs_on_yunet_alone(monkeypatch):
+    from phototag.faceblur_mp import create_mediapipe
+    monkeypatch.delenv("PHOTOTAG_FACEBLUR_MP_MODEL", raising=False)
+    assert create_mediapipe() is None
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_MP_MODEL", "/nonexistent/face_landmarker.task")
+    assert create_mediapipe() is None
+
+
+# ---------------------------------------------------------------- scene cuts, bar cap, evaluation
+
+def test_hold_stops_at_a_scene_cut():
+    t = fv.Track(1, 0, [(i, face(100, 80)) for i in range(40, 60, 3)])
+    frames = fv.tracks_to_frames([t], 200, 30.0, hold_sec=1.0, cuts=[35, 70])
+    assert min(frames) == 35 and max(frames) == 69             # 30 frames of hold would reach 10 and 90
+
+
+def test_a_cut_closes_every_track_so_nothing_continues_behind_it():
+    tk = fv.Tracker()
+    for k in range(4):
+        tk.update(k * 3, {0: [face(100, 80, 100, 130, 0.9)]})
+    tk.cut()
+    for k in range(4, 8):
+        tk.update(k * 3, {0: [face(100, 80, 100, 130, 0.9)]})
+    kept, _ = tk.finish()
+    assert len(kept) == 2 and kept[0].closed and not kept[1].closed
+
+
+def test_eye_bar_never_gets_longer_than_the_share_of_the_frame(monkeypatch):
+    from phototag.faceblur import eye_bar
+    huge = _fb(100, 40, 400, angle=0)
+    bar = eye_bar(huge, 0.15, 720, 480)
+    assert (bar[2] - bar[0]) <= 0.5 * 720 + 2
+    monkeypatch.setenv("PHOTOTAG_FACEBLUR_BAR_MAX", "0")
+    assert (eye_bar(huge, 0.15, 720, 480)[2] - eye_bar(huge, 0.15, 720, 480)[0]) > 0.5 * 720
+
+
+def test_score_coverage_counts_hits_misses_and_false_blocks():
+    from phototag.faceblur_eval import score_coverage
+    truth = {0: "full", 90: "full", 180: "part", 270: "none", 360: "none"}
+    r = score_coverage(truth, {0, 180, 270})
+    assert (r["full_hit"], r["full_total"], r["part_hit"], r["part_total"]) == (1, 2, 1, 1)
+    assert r["false_blocks"] == [270] and r["missed_full"] == [90] and r["none_total"] == 2
+
+
+def test_truth_file_is_validated(tmp_path):
+    from phototag.faceblur_eval import load_truth
+    ok = tmp_path / "t.json"
+    ok.write_text('{"frames": {"90": "full", "360": "none"}}')
+    assert load_truth(ok) == {90: "full", 360: "none"}
+    bad = tmp_path / "b.json"
+    bad.write_text('{"frames": {"90": "gesicht"}}')
+    with pytest.raises(ValueError):
+        load_truth(bad)
+    empty = tmp_path / "e.json"
+    empty.write_text("{}")
+    with pytest.raises(ValueError):
+        load_truth(empty)
+
+
+@needs_ffmpeg
+def test_contact_sheet_is_written(tmp_path):
+    from phototag.faceblur_eval import contact_sheet
+    src = tmp_path / "c.mp4"
+    make_video(src, audio=False, seconds=3)
+    out = tmp_path / "sheet.png"
+    contact_sheet(src, out, step=30, columns=3)
+    assert out.is_file() and out.stat().st_size > 1000

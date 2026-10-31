@@ -394,6 +394,34 @@ def faceblur_track_trust_score() -> float:
     return _env_float("PHOTOTAG_FACEBLUR_TRACK_TRUST_SCORE", 0.85, 0.5, 0.99)
 
 
+def faceblur_mp_model() -> str:
+    """Video: path of MediaPipe's ``face_landmarker.task``. Empty = no second detector."""
+    return os.getenv("PHOTOTAG_FACEBLUR_MP_MODEL", "").split("#", 1)[0].strip()
+
+
+def faceblur_mp_score() -> float:
+    """Video: MediaPipe detection/presence threshold."""
+    return _env_float("PHOTOTAG_FACEBLUR_MP_SCORE", 0.3, 0.05, 0.95)
+
+
+def faceblur_cut_diff() -> float:
+    """Video: mean grey difference (0-255, 32x24 thumbnails, 3 frames apart) above which a scene cut or a wipe is
+    assumed. Tracks end there and nothing is interpolated or held across it. 0 = off."""
+    return _env_float("PHOTOTAG_FACEBLUR_CUT_DIFF", 38.0, 0.0, 255.0)
+
+
+def faceblur_bar_max() -> float:
+    """Eye bar: longest it may get, as a share of the frame width (a huge close-up face would otherwise
+    produce a block across most of the picture). 0 = no limit."""
+    return _env_float("PHOTOTAG_FACEBLUR_BAR_MAX", 0.5, 0.0, 1.0)
+
+
+def faceblur_edge_pad() -> float:
+    """Video analysis: border added around each frame (share of the long side) so faces that are cut off by the
+    frame edge are still found. 0 switches it off."""
+    return _env_float("PHOTOTAG_FACEBLUR_EDGE_PAD", 0.2, 0.0, 0.6)
+
+
 def faceblur_max_faces() -> int:
     """Video: keep only the N best tracks (0 = no limit). 1 is a quick cure for single-person scenes."""
     return int(_env_float("PHOTOTAG_FACEBLUR_MAX_FACES", 0, 0, 20))
@@ -401,12 +429,12 @@ def faceblur_max_faces() -> int:
 
 def faceblur_gap_sec() -> float:
     """Video: a face that vanishes for less than this is assumed to be still there (interpolated)."""
-    return _env_float("PHOTOTAG_FACEBLUR_GAP_SEC", 1.0, 0.0, 10.0)
+    return _env_float("PHOTOTAG_FACEBLUR_GAP_SEC", 1.5, 0.0, 10.0)
 
 
 def faceblur_hold_sec() -> float:
     """Video: keep blurring this long before the first and after the last detection of a track."""
-    return _env_float("PHOTOTAG_FACEBLUR_HOLD_SEC", 0.3, 0.0, 5.0)
+    return _env_float("PHOTOTAG_FACEBLUR_HOLD_SEC", 0.7, 0.0, 5.0)
 
 
 def faceblur_video_max_side() -> int:

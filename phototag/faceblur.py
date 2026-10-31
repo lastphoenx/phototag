@@ -24,6 +24,7 @@ from phototag.config import (
     parse_region_names,
     faceblur_bar_down,
     faceblur_bar_side,
+    faceblur_bar_max,
     faceblur_bar_up,
     faceblur_margin,
     faceblur_max_detect_side,
@@ -360,6 +361,9 @@ def eye_bar(b: FaceBox, margin: float, width: int, height: int) -> Shape:
     if fr.collapsed and faceblur_unsure() == "face":
         return expand_box(b, m, width, height)
     half_len = max(fr.d * 1.1, b.w * 0.5) * faceblur_bar_side() * (1.0 + m)
+    cap = faceblur_bar_max()
+    if cap > 0:
+        half_len = min(half_len, cap * width / 2.0)
     return _rot_rect(fr, fr.eye_mid, half_len, fr.d * (faceblur_bar_up() + m), fr.d * (faceblur_bar_down() + m), width, height)
 
 

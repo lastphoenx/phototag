@@ -2,6 +2,11 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.7.11
+
+- **Video Face-Blur:** Optional MediaPipe-Zweitmeinung (`PHOTOTAG_FACEBLUR_MP_MODEL`, Extra `pip install -e ".[faceblur-mp]"`), Rand-Padding für abgeschnittene Gesichter, Szenenschnitt-Erkennung (`PHOTOTAG_FACEBLUR_CUT_DIFF`), Eye-Bar-Breiten-Cap (`PHOTOTAG_FACEBLUR_BAR_MAX`). Defaults Gap/Hold **1.5 s / 0.7 s**.
+- **CLI:** `phototag faceblur-eval` — Kontaktbogen zum manuellen Labeln + Trefferquote gegen eine JSON-Referenz (siehe `tests/fixtures/faceblur_truth.example.json`).
+
 ## 0.7.10
 
 - **Nacht-Lauf:** Default **`PHOTOTAG_NIGHT_IMAGES_FIRST=1`** (erst Bilder, dann Videos) — war im Skript fälschlich **0**, obwohl Doku/Referenz **1** vorsahen.
