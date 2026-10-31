@@ -48,6 +48,12 @@
     </label>
     <label id="retagWrap" class="chk hidden"><input type="checkbox" id="tagRetag"> Neu taggen (retag)</label>
     <label id="browseRecursiveWrap" class="chk hidden"><input type="checkbox" id="browseRecursive"> In Unterordnern</label>
+    <label id="browsePageSizeWrap" class="hidden">Pro Seite
+      <select id="browsePageSize">
+        <option value="100" selected>100</option>
+        <option value="200">200</option>
+      </select>
+    </label>
     <div id="folderNav" class="folder-nav hidden">
       <nav id="breadcrumb" class="breadcrumb"></nav>
       <button type="button" id="tagFolderBtn" class="primary">Ordner KI-taggen</button>
@@ -62,6 +68,8 @@
   <div id="jobPanel" class="job-panel hidden"></div>
 
   <main id="queue" class="queue"></main>
+
+  <nav id="browsePagerBottom" class="browse-pager hidden" aria-label="Seiten (unten)"></nav>
 
   <script src="/static/admin.js?v={{ app_version }}"></script>
 </body>

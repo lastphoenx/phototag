@@ -12,7 +12,29 @@
   let kiJobOrder = [];
   let browseOffset = 0;
   let searchOffset = 0;
-  const BROWSE_PAGE = 80;
+  const BROWSE_PAGE_LS = "phototag.browsePageSize";
+  const BROWSE_PAGER_IDS = ["browsePager", "browsePagerBottom"];
+
+  function browsePageLimit() {
+    const el = document.getElementById("browsePageSize");
+    let n = el ? parseInt(el.value, 10) : 100;
+    if (!Number.isFinite(n) || n < 1) n = 100;
+    return Math.min(200, Math.max(1, n));
+  }
+
+  function initBrowsePageSize() {
+    const el = document.getElementById("browsePageSize");
+    if (!el) return;
+    const saved = localStorage.getItem(BROWSE_PAGE_LS);
+    if (saved === "100" || saved === "200") el.value = saved;
+    el.onchange = () => {
+      localStorage.setItem(BROWSE_PAGE_LS, el.value);
+      browseOffset = 0;
+      searchOffset = 0;
+      if (isBrowseMode()) loadBrowse().catch((e) => setStatus(e.message, true));
+      else if (isSearchMode()) loadSearch().catch((e) => setStatus(e.message, true));
+    };
+  }
   /** @type {Map<string, object>} mount cards on current browse page */
   let mountCardByNc = new Map();
   let folderJobActive = false;
@@ -1478,43 +1500,47 @@
   }
 
   function renderBrowsePager(total, offset, limit, onPage) {
-    const nav = document.getElementById("browsePager");
-    if ((!isBrowseMode() && !isSearchMode()) || total <= limit) {
-      nav.classList.add("hidden");
+    const show = (isBrowseMode() || isSearchMode()) && total > limit;
+    BROWSE_PAGER_IDS.forEach((id) => {
+      const nav = document.getElementById(id);
+      if (!nav) return;
+      if (!show) {
+        nav.classList.add("hidden");
+        nav.innerHTML = "";
+        return;
+      }
+      nav.classList.remove("hidden");
+      const page = Math.floor(offset / limit) + 1;
+      const pages = Math.max(1, Math.ceil(total / limit));
       nav.innerHTML = "";
-      return;
-    }
-    nav.classList.remove("hidden");
-    const page = Math.floor(offset / limit) + 1;
-    const pages = Math.max(1, Math.ceil(total / limit));
-    nav.innerHTML = "";
-    const info = document.createElement("span");
-    info.className = "pager-info";
-    info.textContent =
-      "Seite " + page + " / " + pages + " · " + total + " Treffer";
-    nav.appendChild(info);
-    const prev = document.createElement("button");
-    prev.type = "button";
-    prev.textContent = "← Zurück";
-    prev.disabled = offset <= 0;
-    prev.onclick = () => {
-      const nextOff = Math.max(0, offset - limit);
-      if (isSearchMode()) searchOffset = nextOff;
-      else browseOffset = nextOff;
-      onPage().catch((e) => setStatus(e.message, true));
-    };
-    nav.appendChild(prev);
-    const next = document.createElement("button");
-    next.type = "button";
-    next.textContent = "Weiter →";
-    next.disabled = offset + limit >= total;
-    next.onclick = () => {
-      const nextOff = offset + limit;
-      if (isSearchMode()) searchOffset = nextOff;
-      else browseOffset = nextOff;
-      onPage().catch((e) => setStatus(e.message, true));
-    };
-    nav.appendChild(next);
+      const info = document.createElement("span");
+      info.className = "pager-info";
+      info.textContent =
+        "Seite " + page + " / " + pages + " · " + total + " Treffer";
+      nav.appendChild(info);
+      const prev = document.createElement("button");
+      prev.type = "button";
+      prev.textContent = "← Zurück";
+      prev.disabled = offset <= 0;
+      prev.onclick = () => {
+        const nextOff = Math.max(0, offset - limit);
+        if (isSearchMode()) searchOffset = nextOff;
+        else browseOffset = nextOff;
+        onPage().catch((e) => setStatus(e.message, true));
+      };
+      nav.appendChild(prev);
+      const next = document.createElement("button");
+      next.type = "button";
+      next.textContent = "Weiter →";
+      next.disabled = offset + limit >= total;
+      next.onclick = () => {
+        const nextOff = offset + limit;
+        if (isSearchMode()) searchOffset = nextOff;
+        else browseOffset = nextOff;
+        onPage().catch((e) => setStatus(e.message, true));
+      };
+      nav.appendChild(next);
+    });
   }
 
   async function loadQueue() {
@@ -1554,7 +1580,7 @@
       "&offset=" +
       browseOffset +
       "&limit=" +
-      BROWSE_PAGE;
+      browsePageLimit();
     const [data] = await Promise.all([api(browseUrl), loadSubfolders(), blurBarP]);
     const q = document.getElementById("queue");
     q.innerHTML = "";
@@ -1601,7 +1627,10 @@
     const tagsRaw = document.getElementById("searchTags").value.trim();
     if (!q && !tagsRaw) {
       document.getElementById("queue").innerHTML = "";
-      document.getElementById("browsePager").classList.add("hidden");
+      BROWSE_PAGER_IDS.forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add("hidden");
+      });
       setStatus("Stichworte und/oder Tag(s) — Enter oder «Suchen». Volltext nur für status=tagged (FTS).");
       return;
     }
@@ -1612,7 +1641,7 @@
     const fuzzy = document.getElementById("searchFuzzy").checked;
     let url =
       "/api/search?limit=" +
-      BROWSE_PAGE +
+      browsePageLimit() +
       "&offset=" +
       searchOffset +
       "&any=" +
@@ -1652,12 +1681,16 @@
     document.getElementById("filterWrap").classList.toggle("hidden", !browse);
     document.getElementById("retagWrap").classList.toggle("hidden", !browse);
     document.getElementById("browseRecursiveWrap").classList.toggle("hidden", !browse);
+    document.getElementById("browsePageSizeWrap").classList.toggle("hidden", !browse && !search);
     document.getElementById("subfolders").classList.toggle("hidden", !browse);
     document.getElementById("searchBar").classList.toggle("hidden", !search);
     const blurBar = document.getElementById("blurSettingsBar");
     if (blurBar) blurBar.classList.toggle("hidden", !browse || !faceblurEnabled);
     if (!browse && !search) {
-      document.getElementById("browsePager").classList.add("hidden");
+      BROWSE_PAGER_IDS.forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add("hidden");
+      });
     }
   }
 
@@ -1703,6 +1736,7 @@
   document.getElementById("tagFolderBtn").onclick = () =>
     startFolderTagJob().catch((e) => setStatus(e.message, true));
 
+  initBrowsePageSize();
   syncBrowseChrome();
   reload();
   resumeBlurJob();

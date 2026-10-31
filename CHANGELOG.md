@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.7.8
+
+- **Admin Browse:** Seitengrösse **100 oder 200** (Dropdown «Pro Seite»), Pager **oben und unten** («← Zurück» / «Weiter →»). Backend erlaubt weiterhin max. 200 pro Request.
+
 ## 0.7.7
 
 - **Nacht-Lauf:** Default **ohne** `phototag scan` — nur **`tag`** für DB-Queue (`new`/`error`). Optional `PHOTOTAG_NIGHT_SCAN_AT_START=1` (früheres Verhalten: ein Scan vor dem Taggen). Index neuer Medien tagsüber manuell `phototag scan`.
@@ -156,7 +160,7 @@ Format: Version → was für **Deploy** relevant ist.
 
 ## 0.5.8
 
-- **Browse:** Filter **In Unterordnern** + **Pagination** (80 pro Seite) für alle Filter (Mit Tags / Ohne Tags / Review / Alle).
+- **Browse:** Filter **In Unterordnern** + **Pagination** (damals 80 pro Seite; ab 0.7.8: 100/200 wählbar) für alle Filter (Mit Tags / Ohne Tags / Review / Alle).
 - **Ordner KI-taggen:** Vorschau-Dialog mit Anzahl **wird getaggt** / **bereits getaggt übersprungen**; Job-Panel mit Pfadliste und **aktiver Datei**; sichtbare Karten im Job gelb/blau markiert (getaggte nicht im Job).
 
 ## 0.5.7
