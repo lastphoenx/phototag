@@ -1,5 +1,5 @@
 [Unit]
-Description=phototag night scan+tag loop until morning
+Description=phototag night tag loop until morning
 After=network-online.target phototag-rclone-mount.service
 Wants=network-online.target phototag-rclone-mount.service
 

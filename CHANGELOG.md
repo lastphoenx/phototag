@@ -2,6 +2,10 @@
 
 Format: Version → was für **Deploy** relevant ist.
 
+## 0.7.7
+
+- **Nacht-Lauf:** Default **ohne** `phototag scan` — nur **`tag`** für DB-Queue (`new`/`error`). Optional `PHOTOTAG_NIGHT_SCAN_AT_START=1` (früheres Verhalten: ein Scan vor dem Taggen). Index neuer Medien tagsüber manuell `phototag scan`.
+
 ## 0.7.6
 
 - **Fix:** Video Face-Blur Fortschritt im Button — häufigere DB-Updates (Staging-Ticks, Analyse/Encode), UI pollt zentral alle 1 s.
